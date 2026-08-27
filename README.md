@@ -125,6 +125,8 @@ database refuses a self-issued one outright.
 | View the authority register | Approver, controlling officer, or auditor — *not* custodian |
 | Run ingestion, resolve quarantine, verify integrity | Custodian |
 | Read the audit log | Auditor or administrator |
+| View the staff list | Administrator or controlling officer — the latter needs it to issue an authority to a named person |
+| Edit your own name, email and designation | Any signed-in account, on their own profile only |
 | Manage users, roles and settings | Administrator |
 | Create, rename, deactivate or delete a department | Administrator |
 
@@ -155,7 +157,131 @@ second person leaving a second audit event.
 
 ## Running it
 
-Nothing needs installing on the host except Docker.
+### First run on a new machine
+
+Docker is the only thing that needs installing. Five steps, in order.
+
+**1. Set the database password.** Create a `.env` file next to
+`docker-compose.yml`:
+
+```sh
+echo "PG_PASSWORD=$(openssl rand -base64 24 | tr -d '/+=')" > .env
+```
+
+Compose reads `.env` automatically. There is no default — the stack will not
+start without it, which is deliberate.
+
+**2. Put the records where the app can see them.** PDFs go in
+`./service-records`, named `<PPO number> <employee name>.pdf`. The parser also
+accepts the PPO in brackets or at the end; anything it cannot place confidently
+is quarantined rather than guessed at.
+
+```sh
+mkdir -p service-records
+cp /wherever/they/live/*.pdf service-records/
+```
+
+**3. Bring the stack up.**
+
+```sh
+docker compose up --build -d
+```
+
+Migrations run as their own service and the app waits for them, so `up` never
+leaves you with a server against an empty schema. First boot takes a couple of
+minutes to build the image; after that it is seconds.
+
+Check it came up before moving on — `migrate` should read `Exited (0)`:
+
+```sh
+docker compose ps -a
+docker compose logs migrate
+```
+
+**4. Create the first administrator.** There is no default account, and the
+demo seed is the wrong tool here — see the warning below.
+
+```sh
+docker compose run --rm \
+  -e BOOTSTRAP_STAFF_CODE=IT001 \
+  -e BOOTSTRAP_NAME='Your Name' \
+  -e BOOTSTRAP_EMAIL='you@example.gov' \
+  -e BOOTSTRAP_DEPT_CODE=IT \
+  -e BOOTSTRAP_DEPT_NAME='IT Department' \
+  bootstrap
+```
+
+It prints a generated password **once**. You are made to change it at first
+sign-in. Nothing is truncated and an existing staff code is refused rather than
+overwritten, so it is safe to run again for a second account.
+
+**5. Index the records.**
+
+```sh
+docker compose run --rm ingest
+```
+
+It prints how many were added and how many went to quarantine. Quarantine is a
+working state, not a failure: a PPO already on file under a different name, an
+unreadable scan, a filename with no PPO in it. A custodian resolves each one by
+hand.
+
+Open <http://localhost:3002>.
+
+#### Creating further accounts
+
+Two routes, and the first is normally the right one:
+
+- **Administration → Add user.** Pick the department and the staff code fills
+  itself in as the department's next free number. It shows a one-time password
+  once — hand it over in person.
+- **The `bootstrap` service above**, with different `BOOTSTRAP_*` values. Useful
+  for the accounts you need before anyone can sign in. `BOOTSTRAP_ROLES` takes a
+  comma-separated list; a custodian is the one to create next, since ingestion
+  and quarantine are theirs:
+
+  ```sh
+  docker compose run --rm \
+    -e BOOTSTRAP_STAFF_CODE=AC001 -e BOOTSTRAP_NAME='...' \
+    -e BOOTSTRAP_DEPT_CODE=AC -e BOOTSTRAP_DEPT_NAME='Accounts Department' \
+    -e BOOTSTRAP_DEPT_KIND=ACCOUNTS -e BOOTSTRAP_ROLES=CUSTODIAN,APPROVER \
+    bootstrap
+  ```
+
+  `BOOTSTRAP_DEPT_KIND` defaults to `USER_DEPT`. Use `ACCOUNTS` for the
+  department that holds approvers — it decides whether one can be posted there
+  at all, and it is locked once staff exist.
+
+An administrator **cannot open a service record**, by design. If you need to
+read one, raise a request like any user department, or give yourself the
+approver role — which works, and writes a `ROLE_GRANTED` event marked
+`selfGranted`.
+
+> **Do not run `docker compose run --rm seed` on a real deployment.** It is demo
+> data, and it begins by truncating every table — including the account you just
+> created. Its volume points at `./service-records`; your PDFs are safe because
+> the mount is read-only, but the database is not.
+
+### Day-to-day
+
+```sh
+docker compose run --rm ingest          # after adding PDFs to ./service-records
+docker compose run --rm reparse-names   # dry run, after a parser change
+docker compose run --rm reparse-names --apply
+docker compose logs -f app
+docker compose down                     # keeps ./pgdata; `down -v` does not
+```
+
+Rebuild after changing code — `up -d` alone reuses the existing images:
+
+```sh
+docker compose build app migrate && docker compose up -d
+```
+
+### The demo stack
+
+For a tour of the system rather than a deployment. Separate database, sample
+PDFs, nine fictional users:
 
 ```sh
 scripts/dev-db.sh up            # Postgres on localhost:55433
@@ -170,37 +296,19 @@ Then start the server (`PORT` is free to change; 3000 may be taken):
 
 ```sh
 docker run --rm --network host -v "$PWD":/app -w /app \
-  -e DATABASE_URL='postgres://sr:sr@127.0.0.1:55432/service_records' \
+  -e DATABASE_URL='postgres://sr:sr@127.0.0.1:55433/service_records' \
   -e SR_SOURCE_ROOTS=/app/sample-records \
   -e COOKIE_SECURE=false -e PORT=3100 \
   node:22-alpine sh -c 'apk add --no-cache font-dejavu && node --experimental-strip-types src/server.ts'
 ```
 
-Open <http://localhost:3100>.
+Open <http://localhost:3100>. With Node installed locally, drop the
+`scripts/node.sh` prefix and use `npm run dev` / `npm run web:dev`.
 
-### With docker compose
+#### Demo accounts
 
-```sh
-export PG_PASSWORD=...                 # or put it in a .env file next to the compose file
-docker compose up --build -d           # runs migrations, then starts the app
-docker compose run --rm seed           # demo accounts + ingestion. Optional, but
-                                       # without it there are no accounts to sign in with.
-```
-
-Migrations run as their own service and the app waits for them, so `up` never
-leaves you with a server against an empty schema. The seed is deliberately
-separate — you do not want it running against a real folder of records.
-
-The source folder is mounted **read-only**, which is how production should run,
-so the seed does not try to write its sample PDFs there; put files into
-`./sample-records` from the host instead.
-
-With Node installed locally, drop the `scripts/node.sh` prefix and use
-`npm run dev` / `npm run web:dev`.
-
-### Demo accounts
-
-All share the password `ChangeMeToday!2026`.
+Created by `npm run seed`, and only there. All share the password
+`ChangeMeToday!2026`.
 
 | Staff code | Who | Shows off |
 |---|---|---|
@@ -320,7 +428,7 @@ background.
 ## Layout
 
 ```
-db/migrations/    8 numbered .sql files, applied by db/migrate.ts
+db/migrations/    12 numbered .sql files, applied by db/migrate.ts
 src/authz/        §6.1 grantCheck — may this person READ this record?
                   §6.2 authorityCheck — may they RELEASE one to someone else?
 src/ingest/       §7 normalisation, §8 filename parser (pure, no I/O)
@@ -329,14 +437,14 @@ src/services/     search, requests, grants, authorities, auth, audit,
 src/http/         express app, middleware, routes
 src/audit/        §12 append-only event log with a hash chain
 web/              React 19 + Vite client
-test/             70 tests
+test/             89 tests
 ```
 
 ## Testing
 
 ```sh
 scripts/node.sh npm run test:unit   # parser + normaliser, no database
-scripts/node.sh npm test            # all 85, needs DATABASE_URL
+scripts/node.sh npm test            # all 89, needs DATABASE_URL
 ```
 
 The dev database (`scripts/dev-db.sh`, port 55433) is deliberately separate from

@@ -54,9 +54,10 @@ export function Shell({ children }: { children: ReactNode }) {
 
         <div className="sidebar-foot">
           <div className="who">{principal?.fullName}</div>
+          {principal?.designation && <div className="dept">{principal.designation}</div>}
           <div className="dept">{principal?.staffCode} · {principal?.departmentName}</div>
           <div style={{ marginTop: 10, display: 'flex', gap: 6 }}>
-            <NavLink to="/password" className="btn small">Password</NavLink>
+            <NavLink to="/profile" className="btn small">Profile</NavLink>
             <button className="small ghost" onClick={() => void signOut()}>Sign out</button>
           </div>
           <div style={{ marginTop: 10 }}><ThemeSwitch /></div>

@@ -54,7 +54,11 @@ export function toQuarantineReason(_failure: ParseFailure): 'UNPARSEABLE' {
 
 // Filesystem and workflow debris. Trailing only, and only when a name survives.
 const COPY_ARTIFACT = /[\s._-]*(?:-\s*copy(?:\s*\(\d{1,3}\))?|\(\d{1,3}\))\s*$/iu;
-const NOISE_SUFFIX = /[\s._-]+(?:s\.?r\.?|service[\s._-]*record|copy|scan|final|new|old)\s*$/iu;
+// `compressed` earns its place: bulk PDF optimisers append it to every file
+// they touch, so a whole folder arrives with it and every employee name in the
+// catalogue ends up carrying it.
+const NOISE_SUFFIX =
+  /[\s._-]+(?:s\.?r\.?|service[\s._-]*record|copy|scan|final|new|old|compressed)\s*$/iu;
 
 const PPO_RUN = String.raw`\d[\d\s\-\/]*\d|\d`;
 const LABEL = String.raw`(?:ppo[\s._:-]*)?`;

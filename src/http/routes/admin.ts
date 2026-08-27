@@ -5,6 +5,7 @@ import { getPool } from '../../db.ts';
 import { hashPassword } from '../../services/auth.ts';
 import { SETTING_SPECS, setSetting, validateSetting } from '../../services/settings.ts';
 import { appendEvent } from '../../audit/events.ts';
+import { AuthzError } from '../../domain/errors.ts';
 import { requireAuth, requireRole } from '../middleware/auth.ts';
 import { wrap } from '../middleware/errors.ts';
 import { param, uuidParam } from '../middleware/context.ts';
@@ -180,10 +181,20 @@ adminRoutes.delete('/departments/:id', requireRole('ADMIN'), wrap(async (req, re
   res.json({ ok: true });
 }));
 
-adminRoutes.get('/users', requireRole('ADMIN', 'CONTROLLING_OFFICER', 'CUSTODIAN', 'APPROVER'),
+/**
+ * The staff list, which is a personnel record: names, emails, roles, last
+ * sign-in, and whether each account has a second factor on it.
+ *
+ * Two roles only. An administrator manages accounts, and a controlling officer
+ * needs the list to issue an approval authority to a named person. Custodians
+ * and approvers were on this list and had no screen that used it — the effect
+ * was that anyone in Accounts could read every account in the building.
+ */
+adminRoutes.get('/users', requireRole('ADMIN', 'CONTROLLING_OFFICER'),
   wrap(async (_req, res) => {
     const { rows } = await getPool().query(
-      `SELECT u.id, u.staff_code, u.full_name, u.email, u.status, u.totp_enabled, u.totp_required,
+      `SELECT u.id, u.staff_code, u.full_name, u.email, u.designation, u.status,
+              u.totp_enabled, u.totp_required,
               u.last_login_at, u.must_change_password, d.name AS department_name, d.kind,
               coalesce(array_agg(ur.role_id) FILTER (WHERE ur.role_id IS NOT NULL), '{}') AS roles
        FROM users u
@@ -196,12 +207,68 @@ adminRoutes.get('/users', requireRole('ADMIN', 'CONTROLLING_OFFICER', 'CUSTODIAN
   }));
 
 const userBody = z.object({
-  staffCode: z.string().trim().min(2),
+  // Optional: omit it and the department's next free code is allocated.
+  // Supplied, it is taken as given — a department that numbers its staff some
+  // other way is not a bug to be corrected at the point a user is created.
+  staffCode: z.string().trim().min(2).optional().nullable(),
   fullName: z.string().trim().min(2),
   email: z.string().email().optional().nullable(),
+  // What the person is posted as. Left blank when nobody knows it yet —
+  // better an empty field than a guessed job title in the audit trail.
+  designation: z.string().trim().max(120).optional().nullable(),
   departmentId: z.string().uuid(),
   roles: z.array(z.enum(['REQUESTER', 'APPROVER', 'CUSTODIAN', 'CONTROLLING_OFFICER', 'AUDITOR', 'ADMIN'])),
 });
+
+/** Staff codes are `<DEPT CODE><3 digits>` — AC001, PW014. */
+const SEQ_DIGITS = 3;
+
+const escapeRegex = (s: string): string => s.replace(/[.*+?^${}()|[\]\\-]/gu, '\\$&');
+
+/**
+ * The next free code for a department.
+ *
+ * Scans by code prefix rather than by department membership: a user who
+ * transfers keeps the staff code they were hired under, and reissuing it to
+ * someone else would put two people behind one identifier in the audit log.
+ *
+ * Exactly three digits, so a department coded `AC` does not read `AC2001` —
+ * belonging to `AC2` — as its own number 2001 and skip the whole range.
+ */
+async function nextStaffCode(departmentId: string): Promise<{ code: string; deptCode: string }> {
+  const { rows: dept } = await getPool().query<{ code: string }>(
+    'SELECT code FROM departments WHERE id = $1', [departmentId],
+  );
+  if (!dept[0]) throw new AuthzError('No such department.', 'NOT_FOUND', 404);
+
+  const deptCode = dept[0].code;
+  const pattern = `^${escapeRegex(deptCode)}[0-9]{${SEQ_DIGITS}}$`;
+  const { rows } = await getPool().query<{ next: number }>(
+    `SELECT coalesce(max(substring(staff_code from $2)::int), 0) + 1 AS next
+       FROM users WHERE staff_code ~ $1`,
+    [pattern, `^${escapeRegex(deptCode)}([0-9]{${SEQ_DIGITS}})$`],
+  );
+
+  const next = rows[0]?.next ?? 1;
+  if (next >= 10 ** SEQ_DIGITS) {
+    throw new AuthzError(
+      `${deptCode} has used every code up to ${deptCode}${'9'.repeat(SEQ_DIGITS)}. Enter one by hand.`,
+      'STAFF_CODES_EXHAUSTED', 409);
+  }
+  return { code: `${deptCode}${String(next).padStart(SEQ_DIGITS, '0')}`, deptCode };
+}
+
+// Lets the form show the code before the administrator commits to it. Only a
+// preview: two administrators looking at once see the same number, and the
+// allocation that matters happens inside POST /users.
+adminRoutes.get('/users/next-code', requireRole('ADMIN'), wrap(async (req, res) => {
+  const departmentId = z.string().uuid().safeParse(req.query['departmentId']);
+  if (!departmentId.success) {
+    res.status(400).json({ error: 'BAD_REQUEST', message: 'Choose a department first.' });
+    return;
+  }
+  res.json(await nextStaffCode(departmentId.data));
+}));
 
 adminRoutes.post('/users', requireRole('ADMIN'), wrap(async (req, res) => {
   const body = userBody.safeParse(req.body);
@@ -214,13 +281,53 @@ adminRoutes.post('/users', requireRole('ADMIN'), wrap(async (req, res) => {
   }
   // A one-time password shown once. Reset is an offline procedure by design (§11).
   const initial = randomBytes(9).toString('base64url');
-  const { rows } = await getPool().query<{ id: string }>(
-    `INSERT INTO users (staff_code, full_name, email, department_id, password_hash, must_change_password)
-     VALUES ($1,$2,$3,$4,$5,true) RETURNING id`,
-    [body.data.staffCode, body.data.fullName, body.data.email ?? null,
-     body.data.departmentId, await hashPassword(initial)],
-  );
-  const id = rows[0]!.id;
+  const passwordHash = await hashPassword(initial);
+  const supplied = body.data.staffCode?.trim().toUpperCase() || null;
+
+  // Allocating a code reads the highest one in use and adds one, which two
+  // administrators can do at the same instant and both win. The unique index
+  // on staff_code is what actually decides; this retries around it rather
+  // than locking the users table for every account ever created.
+  //
+  // A code typed in by hand is not retried — the administrator asked for that
+  // one specifically, and quietly substituting a different one is worse than
+  // saying it is taken.
+  let id: string | undefined;
+  let staffCode = supplied;
+  for (let attempt = 0; id === undefined; attempt++) {
+    if (!supplied) staffCode = (await nextStaffCode(body.data.departmentId)).code;
+    try {
+      const { rows } = await getPool().query<{ id: string }>(
+        `INSERT INTO users (staff_code, full_name, email, designation, department_id,
+                            password_hash, must_change_password)
+         VALUES ($1,$2,$3,$4,$5,$6,true) RETURNING id`,
+        [staffCode, body.data.fullName, body.data.email ?? null,
+         body.data.designation || null, body.data.departmentId, passwordHash],
+      );
+      id = rows[0]!.id;
+    } catch (err) {
+      const pg = err as { code?: string; constraint?: string };
+      if (pg.code !== '23505') throw err;
+      // email is unique too. Retrying a clash there would burn staff codes on
+      // an attempt that can never succeed, and report the wrong field besides.
+      if (pg.constraint === 'users_email_key') {
+        res.status(409).json({
+          error: 'DUPLICATE_EMAIL',
+          message: `${body.data.email} is already on another account.`,
+        });
+        return;
+      }
+      if (supplied || attempt >= 4) {
+        res.status(409).json({
+          error: 'DUPLICATE_STAFF_CODE',
+          message: supplied
+            ? `Staff code ${supplied} is already in use.`
+            : 'Several accounts were created at once. Try again.',
+        });
+        return;
+      }
+    }
+  }
   for (const role of body.data.roles) {
     await getPool().query(
       'INSERT INTO user_roles (user_id, role_id, granted_by) VALUES ($1,$2,$3)',
@@ -229,9 +336,14 @@ adminRoutes.post('/users', requireRole('ADMIN'), wrap(async (req, res) => {
   }
   await appendEvent(getPool(), {
     eventType: 'USER_CREATED', actorId: req.principal!.id,
-    detail: { userId: id, staffCode: body.data.staffCode, roles: body.data.roles },
+    // The code that was actually issued, and whether a person chose it — an
+    // audit row naming a code the account does not carry is worse than none.
+    detail: {
+      userId: id, staffCode, roles: body.data.roles,
+      staffCodeSource: supplied ? 'SUPPLIED' : 'ALLOCATED',
+    },
   });
-  res.status(201).json({ id, initialPassword: initial });
+  res.status(201).json({ id, staffCode, initialPassword: initial });
 }));
 
 const rolesBody = z.object({

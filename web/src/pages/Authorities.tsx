@@ -16,16 +16,20 @@ interface Dept { id: string; name: string; kind: string; is_active: boolean }
 
 export function AuthoritiesPage() {
   const { can, principal } = useAuth();
+  const canIssue = can('CONTROLLING_OFFICER');
   const list = useLoad<{ authorities: Authority[] }>('/authorities');
-  const users = useLoad<{ users: User[] }>('/admin/users');
-  const depts = useLoad<{ departments: Dept[] }>('/admin/departments');
+  // Only the issue form needs these, and only a controlling officer sees it.
+  // The register itself carries its own holder names. Asking for the staff
+  // list on every visit meant an approver or auditor opening this page pulled
+  // down every account in the building to render nothing with.
+  const users = useLoad<{ users: User[] }>(canIssue ? '/admin/users' : null, [canIssue]);
+  const depts = useLoad<{ departments: Dept[] }>(canIssue ? '/admin/departments' : null, [canIssue]);
   const [problem, setProblem] = useState<string | null>(null);
   const [showIssue, setShowIssue] = useState(false);
 
   if (list.loading) return <Spinner />;
 
   const authorities = list.data?.authorities ?? [];
-  const canIssue = can('CONTROLLING_OFFICER');
 
   async function act(id: string, action: 'suspend' | 'resume' | 'revoke') {
     const reason = action === 'revoke' ? window.prompt('Why is this authority being withdrawn?') : undefined;

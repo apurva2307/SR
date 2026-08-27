@@ -15,7 +15,9 @@
     "dev": "node --experimental-strip-types --watch src/server.ts",
     "start": "node --experimental-strip-types src/server.ts",
     "seed": "node --experimental-strip-types scripts/seed.ts",
+    "bootstrap:admin": "node --experimental-strip-types scripts/bootstrap-admin.ts",
     "ingest": "node --experimental-strip-types scripts/ingest.ts",
+    "reparse-names": "node --experimental-strip-types scripts/reparse-names.ts",
     "web:dev": "vite --config web/vite.config.ts",
     "web:build": "vite build --config web/vite.config.ts"
   },

@@ -62,8 +62,14 @@ export function ViewerPage() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Not while the page box has focus: there, Left and Right move the caret
+      // through the number being typed.
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return;
       if (e.key === 'ArrowRight') setPage((p) => Math.min(pageCount ?? p, p + 1));
       if (e.key === 'ArrowLeft') setPage((p) => Math.max(1, p - 1));
+      if (e.key === 'Home') setPage(1);
+      if (e.key === 'End' && pageCount) setPage(pageCount);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -88,9 +94,7 @@ export function ViewerPage() {
 
       <div className="viewer-bar">
         <button className="small" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>← Previous</button>
-        <span className="mono">
-          Page {page}{pageCount ? ` of ${pageCount}` : ''}
-        </span>
+        <JumpToPage page={page} pageCount={pageCount} onJump={setPage} />
         <button className="small" disabled={!!pageCount && page >= pageCount}
           onClick={() => setPage((p) => p + 1)}>Next →</button>
         <span className="spacer" />
@@ -111,7 +115,52 @@ export function ViewerPage() {
       <p className="hint">
         This page is a rendered image, watermarked with your name and staff code. The document
         itself never leaves the server, and every page you open is recorded.
+        {pageCount && pageCount > 1 ? ' Type a page number above, or use ← and → to turn pages.' : ''}
       </p>
     </div>
+  );
+}
+
+/**
+ * Paging through a 90-page service record one arrow at a time is the whole
+ * reason this exists — these documents run to three figures.
+ *
+ * The box holds what is being typed rather than the current page, so a partial
+ * number ("1" on the way to "147") does not fetch page 1 and log a PAGE_SERVED
+ * event for a page nobody meant to open. Nothing is requested until the entry
+ * is committed with Enter or by leaving the field.
+ */
+function JumpToPage({ page, pageCount, onJump }: {
+  page: number; pageCount: number | null; onJump: (n: number) => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const showing = draft ?? String(page);
+
+  const commit = () => {
+    if (draft === null) return;
+    const n = Number(draft);
+    setDraft(null);
+    // Out of range, or not a number at all: fall back to where we already are
+    // rather than guessing at what was meant.
+    if (!Number.isInteger(n) || n < 1) return;
+    if (pageCount && n > pageCount) { onJump(pageCount); return; }
+    if (n !== page) onJump(n);
+  };
+
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      <label htmlFor="jump" className="mono" style={{ marginBottom: 0 }}>Page</label>
+      <input id="jump" className="mono" inputMode="numeric" aria-label="Jump to page"
+        style={{ width: `${Math.max(3, String(pageCount ?? 999).length + 1)}ch`, textAlign: 'center', padding: '2px 4px' }}
+        value={showing}
+        onFocus={(e) => e.currentTarget.select()}
+        onChange={(e) => setDraft(e.target.value.replace(/\D/gu, '').slice(0, 5))}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { commit(); e.currentTarget.blur(); }
+          if (e.key === 'Escape') { setDraft(null); e.currentTarget.blur(); }
+        }} />
+      <span className="mono">{pageCount ? `of ${pageCount}` : ''}</span>
+    </span>
   );
 }

@@ -5,13 +5,19 @@ services:
       POSTGRES_USER: srdfm
       POSTGRES_PASSWORD: ${PG_PASSWORD}
       POSTGRES_DB: service_records
-    ports: ['55432:5432']
-    volumes: ['./pgdata:/var/lib/postgresql/data']
+    ports: ["55432:5432"]
+    volumes: ["./pgdata:/var/lib/postgresql/data"]
     healthcheck:
       # Uses the configured user rather than a hardcoded one: pg_isready does
       # not authenticate, so a wrong name here reports healthy and hides a
       # credential mismatch until the app fails to connect.
-      test: ['CMD-SHELL', 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      #
+      # -h 127.0.0.1 is what makes this correct on a first boot. Without it
+      # pg_isready goes over the unix socket, which the temporary server that
+      # initdb runs is already listening on while TCP is not up yet — so the
+      # very first `up` on a new machine reported healthy and then failed the
+      # migration with ECONNREFUSED. Over TCP, healthy means what the app needs.
+      test: ["CMD-SHELL", 'pg_isready -h 127.0.0.1 -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
       interval: 3s
       timeout: 3s
       retries: 20
@@ -24,8 +30,8 @@ services:
       db: { condition: service_healthy }
     environment:
       DATABASE_URL: postgres://srdfm:${PG_PASSWORD}@db:5432/service_records
-    command: ['node', '--experimental-strip-types', 'db/migrate.ts']
-    restart: 'no'
+    command: ["node", "--experimental-strip-types", "db/migrate.ts"]
+    restart: "no"
 
   app:
     build: .
@@ -35,12 +41,59 @@ services:
     environment:
       DATABASE_URL: postgres://srdfm:${PG_PASSWORD}@db:5432/service_records
       SR_SOURCE_ROOTS: /srv/service-records
-      COOKIE_SECURE: 'false'   # development only; TLS terminates in front in production
-      PORT: '3000'
-    ports: ['3002:3000']
+      COOKIE_SECURE: "false" # development only; TLS terminates in front in production
+      PORT: "3000"
+    ports: ["3002:3000"]
     volumes:
       # Read-only. The application reads records and never writes them (§4.2).
-      - ./sample-records:/srv/service-records:ro
+      - ./service-records:/srv/service-records:ro
+
+  # The first real account, and later ones if you prefer the shell to the admin
+  # console. Not part of `up`; run it explicitly and pass what it needs:
+  #   docker compose run --rm \
+  #     -e BOOTSTRAP_STAFF_CODE=IT001 -e BOOTSTRAP_NAME='Your Name' bootstrap
+  # Unlike `seed`, it truncates nothing and refuses to overwrite an existing
+  # staff code. The generated password is printed once.
+  bootstrap:
+    build: .
+    profiles: ["tools"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    environment:
+      DATABASE_URL: postgres://srdfm:${PG_PASSWORD}@db:5432/service_records
+    command:
+      ["node", "--experimental-strip-types", "scripts/bootstrap-admin.ts"]
+
+  # Ingestion against the real folder. `up` does not scan on boot, so this is
+  # how records reach the catalogue without a custodian signing in.
+  ingest:
+    build: .
+    profiles: ["tools"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    environment:
+      DATABASE_URL: postgres://srdfm:${PG_PASSWORD}@db:5432/service_records
+      SR_SOURCE_ROOTS: /srv/service-records
+    volumes:
+      - ./service-records:/srv/service-records:ro
+    command: ["node", "--experimental-strip-types", "scripts/ingest.ts"]
+
+  # Re-derives the name columns of indexed records after a parser change.
+  # Re-ingesting cannot do this: the runner keys on sha256 and skips files it
+  # has already seen. Dry run by default:
+  #   docker compose run --rm reparse-names
+  #   docker compose run --rm reparse-names --apply
+  reparse-names:
+    build: .
+    profiles: ["tools"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    environment:
+      DATABASE_URL: postgres://srdfm:${PG_PASSWORD}@db:5432/service_records
+    # entrypoint, not command: `docker compose run svc --apply` *replaces* the
+    # command, so a command here would be thrown away and `--apply` run as the
+    # executable. Args appended to an entrypoint behave the way you expect.
+    entrypoint: ["node", "--experimental-strip-types", "scripts/reparse-names.ts"]
 
   # Demo data. Not part of `up` — run it explicitly:
   #   docker compose run --rm seed
@@ -48,14 +101,14 @@ services:
   # which is how production runs; put files there from the host instead.
   seed:
     build: .
-    profiles: ['tools']
+    profiles: ["tools"]
     depends_on:
       migrate: { condition: service_completed_successfully }
     environment:
       DATABASE_URL: postgres://srdfm:${PG_PASSWORD}@db:5432/service_records
       SR_SOURCE_ROOTS: /srv/service-records
     volumes:
-      - ./sample-records:/srv/service-records:ro
+      - ./service-records:/srv/service-records:ro
     command:
       - sh
       - -c

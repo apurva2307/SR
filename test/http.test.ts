@@ -134,6 +134,15 @@ describe('http surface', { skip: url ? false : 'DATABASE_URL not set' }, () => {
         },
         body: JSON.stringify(body),
       }),
+      put: (p: string, body: unknown) => fetch(`${base}/api${p}`, {
+        method: 'PUT',
+        headers: {
+          'content-type': 'application/json',
+          cookie: cookieHeader(),
+          'x-csrf-token': jar.get('sr_csrf') ?? '',
+        },
+        body: JSON.stringify(body),
+      }),
     };
   }
 
@@ -422,6 +431,155 @@ describe('http surface', { skip: url ? false : 'DATABASE_URL not set' }, () => {
     // And now the account works.
     const ok = await fetch(`${base}/api/authorities`, { headers: { cookie: cookieHeader() } });
     assert.equal(ok.status, 200, 'a controlling officer should reach the authority register');
+  });
+
+  test('a user edits their own name, email and designation — but nothing that grants power', async () => {
+    const a = await coldSignIn('PW001');
+
+    const saved = await a.put('/auth/profile', {
+      fullName: 'Arun Deshpande', email: 'arun@example.gov', designation: 'Head Clerk',
+    });
+    assert.equal(saved.status, 200);
+
+    const me = await (await a.get('/auth/me')).json() as
+      { principal: { fullName: string; email: string; designation: string; staffCode: string; roles: string[] } };
+    assert.equal(me.principal.fullName, 'Arun Deshpande');
+    assert.equal(me.principal.designation, 'Head Clerk');
+
+    // Staff code and roles are an administrator's to set. Sending them must
+    // not take, or the whole permission model is advisory.
+    await a.put('/auth/profile', {
+      fullName: 'Arun Deshpande', staffCode: 'AC000', roles: ['ADMIN'], departmentId: null,
+    });
+    const after = await (await a.get('/auth/me')).json() as
+      { principal: { staffCode: string; roles: string[] } };
+    assert.equal(after.principal.staffCode, 'PW001');
+    assert.deepEqual(after.principal.roles, ['REQUESTER']);
+
+    // An empty email clears it rather than storing '', which would collide the
+    // moment a second person did the same.
+    assert.equal((await a.put('/auth/profile', { fullName: 'Arun Deshpande', email: '' })).status, 200);
+    const cleared = await (await a.get('/auth/me')).json() as { principal: { email: string | null } };
+    assert.equal(cleared.principal.email, null);
+
+    // The change is on the record, with both sides of it.
+    const { rows } = await db.query<{ detail: { before: { fullName: string } } }>(
+      `SELECT detail FROM access_events WHERE event_type = 'USER_PROFILE_UPDATED'
+        ORDER BY seq LIMIT 1`,
+    );
+    assert.equal(rows[0]?.detail.before.fullName, 'PW001');
+  });
+
+  test('the staff list is not readable by every role in Accounts', async () => {
+    // Codes deliberately outside the <DEPT><3 digits> pattern, so these two do
+    // not move the numbers the allocation test asserts on.
+    const acc = (await db.query<{ id: string }>(
+      `SELECT id FROM departments WHERE code = 'AC'`)).rows[0]!.id;
+    const hash = await hashPassword(PW);
+    const extra = async (code: string, role: string) => {
+      const id = (await db.query<{ id: string }>(
+        `INSERT INTO users (staff_code, full_name, department_id, password_hash, must_change_password)
+         VALUES ($1,$1,$2,$3,false) RETURNING id`, [code, acc, hash])).rows[0]!.id;
+      await db.query('INSERT INTO user_roles VALUES ($1,$2)', [id, role]);
+    };
+    await extra('CUST-A', 'CUSTODIAN');
+    await extra('CTRL-A', 'CONTROLLING_OFFICER');
+
+    // A custodian runs ingestion and resolves quarantine. Nothing in that job
+    // needs the personnel record of everyone in the building — names, emails,
+    // last sign-in, and which accounts have a second factor on them.
+    const custodian = await coldSignIn('CUST-A');
+    assert.equal(custodian.status, 200, JSON.stringify(custodian.body));
+    assert.equal((await custodian.get('/admin/users')).status, 403);
+
+    // Nor does an approver, who works the request queue.
+    const approver = await coldSignIn('AC002');
+    assert.equal((await approver.get('/admin/users')).status, 403);
+
+    // An administrator manages accounts, and a controlling officer needs the
+    // list to issue an authority to a named person. Those two, and no others.
+    const admin = await coldSignIn('IT001');
+    assert.equal((await admin.get('/admin/users')).status, 200);
+    const officer = await coldSignIn('CTRL-A');
+    assert.equal((await officer.get('/admin/users')).status, 200);
+  });
+
+  test('the audit log names the actor by name, designation and staff code', async () => {
+    // Give PW001 a designation, which is itself an auditable act.
+    const them = await coldSignIn('PW001');
+    await them.put('/auth/profile', { fullName: 'Arun Deshpande', designation: 'Head Clerk' });
+    await them.get(`/records/${recordId}`);
+
+    const auditor = await coldSignIn('IT001');
+    const log = await (await auditor.get('/audit?limit=200')).json() as {
+      events: {
+        event_type: string;
+        actor_name: string | null; actor_code: string | null; actor_designation: string | null;
+      }[];
+    };
+
+    const mine = log.events.find((e) => e.actor_code === 'PW001');
+    assert.ok(mine, 'the actor should be identified by staff code');
+    assert.equal(mine.actor_name, 'Arun Deshpande');
+    assert.equal(mine.actor_designation, 'Head Clerk');
+
+    // The columns must survive the CSV export too — an auditor who exports and
+    // loses the identifying columns has an export of nothing much.
+    const csv = await (await auditor.get('/audit?format=csv&limit=10')).text();
+    const header = csv.split('\n')[0] ?? '';
+    for (const col of ['actor_name', 'actor_code', 'actor_designation']) {
+      assert.ok(header.includes(col), `CSV header should carry ${col}, got: ${header}`);
+    }
+  });
+
+  test('staff codes are allocated from the department, and can still be overridden', async () => {
+    const a = await coldSignIn('IT001');
+    const depts = await (await a.get('/admin/departments')).json() as
+      { departments: { id: string; code: string }[] };
+    const accounts = depts.departments.find((d) => d.code === 'AC')!;
+    const works = depts.departments.find((d) => d.code === 'PW')!;
+
+    // The fixture holds AC002 and PW001. IT001 sits in Accounts too, and is
+    // deliberately not counted: it does not carry the department's prefix.
+    const preview = await (await a.get(`/admin/users/next-code?departmentId=${accounts.id}`)).json() as
+      { code: string };
+    assert.equal(preview.code, 'AC003');
+
+    const first = await a.post('/admin/users', {
+      fullName: 'Allocated One', departmentId: accounts.id, roles: ['APPROVER'],
+    });
+    assert.equal(first.status, 201);
+    assert.equal((await first.json() as { staffCode: string }).staffCode, 'AC003');
+
+    // The next one must move on rather than collide.
+    const second = await a.post('/admin/users', {
+      fullName: 'Allocated Two', departmentId: accounts.id, roles: ['APPROVER'],
+    });
+    assert.equal((await second.json() as { staffCode: string }).staffCode, 'AC004');
+
+    // Numbering is per department, not global.
+    const other = await a.post('/admin/users', {
+      fullName: 'Allocated Three', departmentId: works.id, roles: ['REQUESTER'],
+    });
+    assert.equal((await other.json() as { staffCode: string }).staffCode, 'PW002');
+
+    // A code typed in by hand is taken as given, and a clash says so plainly
+    // rather than silently handing back a different account.
+    const manual = await a.post('/admin/users', {
+      staffCode: 'LEGACY-7', fullName: 'Hand Numbered', departmentId: works.id, roles: ['REQUESTER'],
+    });
+    assert.equal((await manual.json() as { staffCode: string }).staffCode, 'LEGACY-7');
+
+    const clash = await a.post('/admin/users', {
+      staffCode: 'LEGACY-7', fullName: 'Second Claimant', departmentId: works.id, roles: ['REQUESTER'],
+    });
+    assert.equal(clash.status, 409);
+    assert.equal((await clash.json() as { error: string }).error, 'DUPLICATE_STAFF_CODE');
+
+    // A hand-numbered code outside the pattern must not disturb allocation.
+    const after = await (await a.get(`/admin/users/next-code?departmentId=${works.id}`)).json() as
+      { code: string };
+    assert.equal(after.code, 'PW003');
   });
 
   describe('two-factor enrolment', () => {

@@ -23,15 +23,20 @@ export interface Principal {
   departmentId: Uuid;
   departmentKind: 'ACCOUNTS' | 'USER_DEPT';
   departmentName: string;
+  email: string | null;
+  designation: string | null;
   roles: string[];
   mustChangePassword: boolean;
   totpEnabled: boolean;
+  /** An administrator made it mandatory, so the holder cannot turn it off. */
+  totpRequired: boolean;
   /** Required by an administrator but not yet enrolled — the user must finish it. */
   mustEnrolTotp: boolean;
 }
 
 const PRINCIPAL_SQL = `
-SELECT u.id, u.staff_code, u.full_name, u.department_id, u.must_change_password,
+SELECT u.id, u.staff_code, u.full_name, u.email, u.designation, u.department_id,
+       u.must_change_password,
        u.totp_enabled, u.totp_required, d.kind AS department_kind, d.name AS department_name,
        coalesce(array_agg(ur.role_id) FILTER (WHERE ur.role_id IS NOT NULL), '{}') AS roles
 FROM users u
@@ -42,6 +47,7 @@ GROUP BY u.id, d.kind, d.name`;
 
 interface PrincipalRow {
   id: string; staff_code: string; full_name: string; department_id: string;
+  email: string | null; designation: string | null;
   must_change_password: boolean; totp_enabled: boolean; totp_required: boolean;
   department_kind: 'ACCOUNTS' | 'USER_DEPT'; department_name: string; roles: string[];
 }
@@ -50,7 +56,9 @@ const toPrincipal = (r: PrincipalRow): Principal => ({
   id: r.id, staffCode: r.staff_code, fullName: r.full_name,
   departmentId: r.department_id, departmentKind: r.department_kind,
   departmentName: r.department_name, roles: r.roles,
+  email: r.email, designation: r.designation,
   mustChangePassword: r.must_change_password, totpEnabled: r.totp_enabled,
+  totpRequired: r.totp_required,
   mustEnrolTotp: r.totp_required && !r.totp_enabled,
 });
 

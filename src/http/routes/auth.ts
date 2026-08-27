@@ -116,6 +116,80 @@ authRoutes.post('/password', requireAuth, wrap(async (req, res) => {
   res.json({ ok: true });
 }));
 
+/**
+ * A user's own name, email and designation.
+ *
+ * Deliberately not here: staff code, department and roles. Those say where a
+ * person sits and what they may do, and letting an account rewrite them would
+ * make every other control decorative. They stay with an administrator.
+ *
+ * The audit log is unaffected by a rename — events name a user id, and the
+ * before/after is recorded below so an old row stays explainable.
+ */
+const profileBody = z.object({
+  fullName: z.string().trim().min(2, 'Give your full name.').max(120),
+  // Explicit null clears it; an empty string is the same intent typed into a
+  // form, and reading it as the literal '' would break the UNIQUE index the
+  // moment a second person did it.
+  email: z.string().trim().email('That is not a valid email address.').max(160)
+    .nullable().optional()
+    .or(z.literal('').transform(() => null)),
+  designation: z.string().trim().max(120).nullable().optional()
+    .or(z.literal('').transform(() => null)),
+});
+
+authRoutes.put('/profile', requireAuth, wrap(async (req, res) => {
+  const body = profileBody.safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({
+      error: 'BAD_REQUEST',
+      message: body.error.issues[0]?.message ?? 'Check the fields and try again.',
+    });
+    return;
+  }
+
+  const me = req.principal!;
+  const email = body.data.email ?? null;
+  const designation = body.data.designation ?? null;
+
+  if (me.fullName === body.data.fullName && me.email === email && me.designation === designation) {
+    res.json({ ok: true, changed: false });
+    return;
+  }
+
+  try {
+    await getPool().query(
+      `UPDATE users SET full_name = $2, email = $3, designation = $4, updated_at = now()
+        WHERE id = $1`,
+      [me.id, body.data.fullName, email, designation],
+    );
+  } catch (err) {
+    if ((err as { code?: string }).code === '23505') {
+      res.status(409).json({
+        error: 'DUPLICATE_EMAIL',
+        message: `${email} is already on another account.`,
+      });
+      return;
+    }
+    throw err;
+  }
+
+  await appendEvent(getPool(), {
+    eventType: 'USER_PROFILE_UPDATED',
+    actorId: me.id,
+    // Named, not spread: audit() returns `ip`, and an AuditEvent wants
+    // `actorIp`. Spreading type-checks and silently logs no address.
+    actorIp: audit(req).ip ?? null,
+    userAgent: audit(req).userAgent,
+    detail: {
+      before: { fullName: me.fullName, email: me.email, designation: me.designation },
+      after: { fullName: body.data.fullName, email, designation },
+    },
+  });
+
+  res.json({ ok: true, changed: true });
+}));
+
 
 // ---------------------------------------------------------------------------
 // Two-factor enrolment, done by the person holding the phone.

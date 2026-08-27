@@ -2,11 +2,17 @@ import { useState } from 'react';
 import { api, ApiError } from '../api';
 import { useAuth } from '../auth';
 import { Banner } from '../components/bits';
-import { Link } from 'react-router-dom';
-import { TotpDisable } from './Totp';
 
-export function PasswordPage({ forced = false }: { forced?: boolean }) {
-  const { refresh, signOut, principal } = useAuth();
+/**
+ * Changing a password, in the two places it happens: on the profile page by
+ * choice, and full-screen at first sign-in because the account was issued with
+ * a one-time password and cannot go anywhere else until it is replaced.
+ *
+ * One component for both, because they are the same operation — the forced
+ * variant only changes the wording and adds a way out.
+ */
+export function PasswordCard({ forced = false }: { forced?: boolean }) {
+  const { refresh, signOut } = useAuth();
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -23,14 +29,15 @@ export function PasswordPage({ forced = false }: { forced?: boolean }) {
     try {
       await api.post('/auth/password', { current, next });
       setDone(true);
+      setCurrent(''); setNext(''); setConfirm('');
       await refresh();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not change the password.');
     } finally { setBusy(false); }
   }
 
-  const form = (
-    <form className="card login" onSubmit={submit}>
+  return (
+    <form className={forced ? 'card login' : 'card'} onSubmit={submit}>
       <h2 style={{ marginBottom: 6 }}>{forced ? 'Set a new password' : 'Change your password'}</h2>
       <p className="hint" style={{ marginBottom: 16 }}>
         {forced
@@ -68,28 +75,9 @@ export function PasswordPage({ forced = false }: { forced?: boolean }) {
       </div>
     </form>
   );
+}
 
-  if (forced) return <div className="login-wrap">{form}</div>;
-
-  return (
-    <div style={{ maxWidth: 560 }}>
-      {form}
-      <div className="card" style={{ maxWidth: 420, marginTop: 14 }}>
-        <h3 style={{ marginBottom: 6 }}>Two-factor authentication</h3>
-        {principal?.totpEnabled ? (
-          <p className="hint" style={{ marginBottom: 0 }}>
-            On. You are asked for a six-digit code at each sign-in.
-          </p>
-        ) : (
-          <>
-            <p className="hint">
-              Off. A six-digit code from your phone, on top of your password.
-            </p>
-            <Link className="btn" to="/two-factor">Set up two-factor</Link>
-          </>
-        )}
-      </div>
-      {principal?.totpEnabled && <TotpDisable onChanged={() => void refresh()} />}
-    </div>
-  );
+/** The full-screen forced variant, shown by the gate before anything else loads. */
+export function PasswordPage() {
+  return <div className="login-wrap"><PasswordCard forced /></div>;
 }

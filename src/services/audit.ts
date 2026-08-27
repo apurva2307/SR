@@ -13,6 +13,7 @@ export async function query(db: Queryable, f: AuditFilter) {
     `SELECT e.seq, e.occurred_at, e.event_type, e.outcome, e.detail, e.actor_ip,
             e.view_session_id, e.grant_id, e.authority_id, e.request_id,
             u.full_name AS actor_name, u.staff_code AS actor_code,
+            u.designation AS actor_designation,
             r.ppo_number, r.employee_name
      FROM access_events e
      LEFT JOIN users u ON u.id = e.actor_id
@@ -41,6 +42,7 @@ export async function custodialReads(db: Queryable, days = 7) {
   const { rows } = await db.query(
     `SELECT v.id, v.opened_at, v.closed_at, v.pages_served, v.first_page, v.last_page,
             u.full_name AS actor_name, u.staff_code AS actor_code,
+            u.designation AS actor_designation,
             r.ppo_number, r.employee_name
      FROM view_sessions v
      JOIN users u ON u.id = v.user_id
@@ -56,6 +58,7 @@ export async function viewSessions(db: Queryable, f: { recordId?: Uuid; actorId?
   const { rows } = await db.query(
     `SELECT v.id, v.opened_at, v.closed_at, v.pages_served, v.first_page, v.last_page, v.via, v.ip,
             u.full_name AS actor_name, u.staff_code AS actor_code,
+            u.designation AS actor_designation,
             r.ppo_number, r.employee_name
      FROM view_sessions v
      JOIN users u ON u.id = v.user_id

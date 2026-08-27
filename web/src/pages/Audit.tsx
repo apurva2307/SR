@@ -5,14 +5,41 @@ import { Banner, Empty, Spinner } from '../components/bits';
 interface Event {
   seq: string; occurred_at: string; event_type: string; outcome: string;
   detail: Record<string, unknown>; actor_ip: string | null;
-  actor_name: string | null; actor_code: string | null;
+  actor_name: string | null; actor_code: string | null; actor_designation: string | null;
   ppo_number: string | null; employee_name: string | null;
 }
 
 interface Session {
   id: string; opened_at: string; closed_at: string | null; pages_served: number;
   first_page: number | null; last_page: number | null; via?: string;
-  actor_name: string; actor_code: string; ppo_number: string; employee_name: string;
+  actor_name: string; actor_code: string; actor_designation: string | null;
+  ppo_number: string; employee_name: string;
+}
+
+/**
+ * Who did it: name, the post they hold, and the staff code that identifies them
+ * in an office order.
+ *
+ * These are the account's values now, not as they read on the day. A rename is
+ * itself a USER_PROFILE_UPDATED event carrying both sides, so the log can still
+ * answer what someone was called at any point — but this column shows who to go
+ * and find today, which is what an auditor is usually after.
+ */
+function Actor({ name, designation, code, ip }: {
+  name: string | null; designation: string | null; code: string | null; ip?: string | null;
+}) {
+  const muted = { color: 'var(--muted)', fontSize: '0.75rem' } as const;
+  // No account: a scheduled job, or the bootstrap that ran before any user existed.
+  if (!name) return <span style={muted}>System</span>;
+  return (
+    <>
+      {name}
+      {designation && <div style={muted}>{designation}</div>}
+      <div className="mono" style={muted}>
+        {code}{ip ? ` · ${ip}` : ''}
+      </div>
+    </>
+  );
 }
 
 type View = 'all' | 'denials' | 'custodial' | 'sessions';
@@ -85,9 +112,8 @@ function EventTable({ rows }: { rows: Event[] }) {
                 <span className={`pill ${e.outcome === 'DENY' ? 'stop' : 'neutral'}`}>{e.event_type}</span>
               </td>
               <td>
-                {e.actor_name ?? 'System'}
-                {e.actor_ip && <div style={{ color: 'var(--muted)', fontSize: '0.75rem' }}
-                  className="mono">{e.actor_ip}</div>}
+                <Actor name={e.actor_name} designation={e.actor_designation}
+                  code={e.actor_code} ip={e.actor_ip} />
               </td>
               <td>
                 {e.ppo_number
@@ -118,8 +144,9 @@ function SessionTable({ rows }: { rows: Session[] }) {
           {rows.map((s) => (
             <tr key={s.id}>
               <td className="nowrap">{fmtDateTime(s.opened_at)}</td>
-              <td>{s.actor_name}
-                <div style={{ color: 'var(--muted)', fontSize: '0.75rem' }}>{s.actor_code}</div></td>
+              <td>
+                <Actor name={s.actor_name} designation={s.actor_designation} code={s.actor_code} />
+              </td>
               <td><span className="mono">{s.ppo_number}</span>
                 <div style={{ color: 'var(--muted)', fontSize: '0.78rem' }}>{s.employee_name}</div></td>
               <td className="mono">{s.pages_served}</td>

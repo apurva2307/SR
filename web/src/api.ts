@@ -48,8 +48,9 @@ export const api = {
 // ---------------------------------------------------------------------------
 export interface Principal {
   id: string; staffCode: string; fullName: string;
+  email: string | null; designation: string | null;
   departmentId: string; departmentKind: 'ACCOUNTS' | 'USER_DEPT'; departmentName: string;
-  roles: string[]; mustChangePassword: boolean; totpEnabled: boolean;
+  roles: string[]; mustChangePassword: boolean; totpEnabled: boolean; totpRequired: boolean;
   mustEnrolTotp: boolean;
 }
 

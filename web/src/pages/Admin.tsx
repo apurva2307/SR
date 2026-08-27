@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api, ApiError } from '../api';
 import { useLoad, fmtDateTime } from '../hooks';
 import { Banner, Empty, Spinner } from '../components/bits';
 
 interface User {
   id: string; staff_code: string; full_name: string; email: string | null;
-  status: string; roles: string[]; department_name: string; kind: string;
+  designation: string | null; status: string; roles: string[]; department_name: string; kind: string;
   last_login_at: string | null; must_change_password: boolean;
   totp_enabled: boolean; totp_required: boolean;
 }
@@ -72,9 +72,9 @@ export function AdminPage() {
 
       {creating && (
         <NewUser departments={depts.data?.departments ?? []}
-          onDone={(pw) => {
+          onDone={(pw, code) => {
             setCreating(false);
-            setNote(`User created. One-time password: ${pw} — hand it over in person; it is shown once.`);
+            setNote(`${code} created. One-time password: ${pw} — hand it over in person; it is shown once.`);
             void users.reload();
           }} />
       )}
@@ -90,6 +90,9 @@ export function AdminPage() {
               <tr key={u.id}>
                 <td>
                   {u.full_name}
+                  {u.designation && (
+                    <div style={{ color: 'var(--muted)', fontSize: '0.78rem' }}>{u.designation}</div>
+                  )}
                   <div className="mono" style={{ color: 'var(--muted)', fontSize: '0.78rem' }}>
                     {u.staff_code}
                   </div>
@@ -189,34 +192,45 @@ export function AdminPage() {
   );
 }
 
-function NewUser({ departments, onDone }: { departments: Dept[]; onDone: (pw: string) => void }) {
+function NewUser({ departments, onDone }: {
+  departments: Dept[]; onDone: (pw: string, staffCode: string) => void;
+}) {
   const [staffCode, setStaffCode] = useState('');
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
+  const [designation, setDesignation] = useState('');
   const [departmentId, setDepartmentId] = useState('');
   const [roles, setRoles] = useState<Set<string>>(new Set(['REQUESTER']));
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // A department numbering its staff some other way is a real situation, not a
+  // mistake to be prevented — so the allocated code can be overridden.
+  const [manualCode, setManualCode] = useState(false);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+
+  // Only a preview. The code that counts is allocated by the server when the
+  // account is inserted, so two administrators working at once cannot both
+  // take the same one however long this form sits open.
+  useEffect(() => {
+    if (!departmentId) { setPreview(null); setPreviewError(null); return; }
+    let current = true;
+    setPreview(null); setPreviewError(null);
+    api.get<{ code: string }>(`/admin/users/next-code?departmentId=${departmentId}`)
+      .then((r) => { if (current) setPreview(r.code); })
+      .catch((e) => {
+        if (!current) return;
+        setPreviewError(e instanceof ApiError ? e.message : 'Could not work out the next staff code.');
+        setManualCode(true);
+      });
+    return () => { current = false; };
+  }, [departmentId]);
 
   return (
     <div className="card">
       <h2 style={{ marginBottom: 14 }}>Add a user</h2>
       {error && <Banner>{error}</Banner>}
       <div className="row">
-        <div className="field">
-          <label htmlFor="sc">Staff code</label>
-          <input id="sc" value={staffCode} onChange={(e) => setStaffCode(e.target.value)} />
-        </div>
-        <div className="field">
-          <label htmlFor="fn">Full name</label>
-          <input id="fn" value={fullName} onChange={(e) => setFullName(e.target.value)} />
-        </div>
-      </div>
-      <div className="row">
-        <div className="field">
-          <label htmlFor="em">Email (optional)</label>
-          <input id="em" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
-        </div>
         <div className="field">
           <label htmlFor="dp">Department</label>
           <select id="dp" value={departmentId} onChange={(e) => setDepartmentId(e.target.value)}>
@@ -225,6 +239,43 @@ function NewUser({ departments, onDone }: { departments: Dept[]; onDone: (pw: st
               .map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
         </div>
+        <div className="field">
+          <label htmlFor="sc">Staff code</label>
+          <input id="sc"
+            value={manualCode ? staffCode : preview ?? ''}
+            readOnly={!manualCode}
+            placeholder={departmentId ? 'Working it out…' : 'Choose a department first'}
+            onChange={(e) => setStaffCode(e.target.value)} />
+          <p className="hint" style={{ marginTop: 6 }}>
+            {previewError ??
+              (manualCode
+                ? <>Typed in by hand. <a href="#" onClick={(e) => {
+                    e.preventDefault(); setManualCode(false); setStaffCode('');
+                  }}>Use {preview ?? 'the department’s next code'} instead</a></>
+                : <>Allocated from the department. <a href="#" onClick={(e) => {
+                    e.preventDefault(); setManualCode(true); setStaffCode(preview ?? '');
+                  }}>Set it manually</a></>)}
+          </p>
+        </div>
+      </div>
+      <div className="row">
+        <div className="field">
+          <label htmlFor="fn">Full name</label>
+          <input id="fn" value={fullName} onChange={(e) => setFullName(e.target.value)} />
+        </div>
+        <div className="field">
+          <label htmlFor="em">Email (optional)</label>
+          <input id="em" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+        </div>
+      </div>
+      <div className="field">
+        <label htmlFor="dg">Designation (optional)</label>
+        <input id="dg" value={designation} placeholder="Senior Accounts Officer"
+          onChange={(e) => setDesignation(e.target.value)} />
+        <p className="hint" style={{ marginTop: 6 }}>
+          The post they hold, as an office order would name it. Roles below decide what
+          they can do; this does not.
+        </p>
       </div>
       <div className="field">
         <label>Roles</label>
@@ -243,15 +294,20 @@ function NewUser({ departments, onDone }: { departments: Dept[]; onDone: (pw: st
           ))}
         </div>
       </div>
-      <button className="primary" disabled={busy || !staffCode || !fullName || !departmentId}
+      <button className="primary"
+        disabled={busy || !fullName || !departmentId || (manualCode && !staffCode.trim())}
         onClick={async () => {
           setBusy(true); setError(null);
           try {
-            const out = await api.post<{ initialPassword: string }>('/admin/users', {
-              staffCode: staffCode.trim(), fullName: fullName.trim(),
-              email: email.trim() || null, departmentId, roles: [...roles],
+            const out = await api.post<{ staffCode: string; initialPassword: string }>('/admin/users', {
+              // null, not the preview: sending it back would let a code the
+              // server has since issued to someone else be claimed twice.
+              staffCode: manualCode ? staffCode.trim() : null,
+              fullName: fullName.trim(),
+              email: email.trim() || null, designation: designation.trim() || null,
+              departmentId, roles: [...roles],
             });
-            onDone(out.initialPassword);
+            onDone(out.initialPassword, out.staffCode);
           } catch (e) {
             setError(e instanceof ApiError ? e.message : 'Could not create the user.');
           } finally { setBusy(false); }
