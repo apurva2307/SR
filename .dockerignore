@@ -1,0 +1,14 @@
+# The compose db bind-mounts its data directory here. It is root-owned, so it
+# breaks the build context outright, and it has no business in an image.
+pgdata/
+
+.git/
+node_modules/
+web/dist/
+sample-records/
+.env
+.env.local
+*.log
+Dockerfile
+docker-compose.yml
+README.md

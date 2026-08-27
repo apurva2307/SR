@@ -1,0 +1,62 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: srdfm
+      POSTGRES_PASSWORD: ${PG_PASSWORD}
+      POSTGRES_DB: service_records
+    ports: ['55432:5432']
+    volumes: ['./pgdata:/var/lib/postgresql/data']
+    healthcheck:
+      # Uses the configured user rather than a hardcoded one: pg_isready does
+      # not authenticate, so a wrong name here reports healthy and hides a
+      # credential mismatch until the app fails to connect.
+      test: ['CMD-SHELL', 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # Runs to completion before the app starts. Without this, `docker compose up`
+  # gives you a server against an empty schema and no accounts to sign in with.
+  migrate:
+    build: .
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      DATABASE_URL: postgres://srdfm:${PG_PASSWORD}@db:5432/service_records
+    command: ['node', '--experimental-strip-types', 'db/migrate.ts']
+    restart: 'no'
+
+  app:
+    build: .
+    depends_on:
+      db: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    environment:
+      DATABASE_URL: postgres://srdfm:${PG_PASSWORD}@db:5432/service_records
+      SR_SOURCE_ROOTS: /srv/service-records
+      COOKIE_SECURE: 'false'   # development only; TLS terminates in front in production
+      PORT: '3000'
+    ports: ['3002:3000']
+    volumes:
+      # Read-only. The application reads records and never writes them (§4.2).
+      - ./sample-records:/srv/service-records:ro
+
+  # Demo data. Not part of `up` — run it explicitly:
+  #   docker compose run --rm seed
+  # Writing the sample PDFs is skipped because the folder is mounted read-only,
+  # which is how production runs; put files there from the host instead.
+  seed:
+    build: .
+    profiles: ['tools']
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    environment:
+      DATABASE_URL: postgres://srdfm:${PG_PASSWORD}@db:5432/service_records
+      SR_SOURCE_ROOTS: /srv/service-records
+    volumes:
+      - ./sample-records:/srv/service-records:ro
+    command:
+      - sh
+      - -c
+      - node --experimental-strip-types scripts/seed.ts && node --experimental-strip-types scripts/ingest.ts

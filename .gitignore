@@ -1,0 +1,8 @@
+node_modules/
+web/dist/
+sample-records/
+dist/
+.env
+.env.local
+*.log
+pgdata/
