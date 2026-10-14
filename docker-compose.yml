@@ -1,12 +1,16 @@
 services:
   db:
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     environment:
       POSTGRES_USER: srdfm
       POSTGRES_PASSWORD: ${PG_PASSWORD}
       POSTGRES_DB: service_records
-    ports: ["55432:5432"]
-    volumes: ["./pgdata:/var/lib/postgresql/data"]
+    # ports: ["55432:5432"]
+    # Postgres 18 keeps its cluster under /var/lib/postgresql/18/docker and
+    # expects the mount one level up. A 16 data directory cannot be opened by
+    # 18, so the old ./pgdata is left untouched for a dump-and-restore.
+    volumes: ["./pgdata18:/var/lib/postgresql"]
+    restart: "unless-stopped"
     healthcheck:
       # Uses the configured user rather than a hardcoded one: pg_isready does
       # not authenticate, so a wrong name here reports healthy and hides a
@@ -17,7 +21,11 @@ services:
       # initdb runs is already listening on while TCP is not up yet — so the
       # very first `up` on a new machine reported healthy and then failed the
       # migration with ECONNREFUSED. Over TCP, healthy means what the app needs.
-      test: ["CMD-SHELL", 'pg_isready -h 127.0.0.1 -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      test:
+        [
+          "CMD-SHELL",
+          'pg_isready -h 127.0.0.1 -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"',
+        ]
       interval: 3s
       timeout: 3s
       retries: 20
@@ -44,6 +52,7 @@ services:
       COOKIE_SECURE: "false" # development only; TLS terminates in front in production
       PORT: "3000"
     ports: ["3002:3000"]
+    restart: "unless-stopped"
     volumes:
       # Read-only. The application reads records and never writes them (§4.2).
       - ./service-records:/srv/service-records:ro
@@ -93,7 +102,8 @@ services:
     # entrypoint, not command: `docker compose run svc --apply` *replaces* the
     # command, so a command here would be thrown away and `--apply` run as the
     # executable. Args appended to an entrypoint behave the way you expect.
-    entrypoint: ["node", "--experimental-strip-types", "scripts/reparse-names.ts"]
+    entrypoint:
+      ["node", "--experimental-strip-types", "scripts/reparse-names.ts"]
 
   # Demo data. Not part of `up` — run it explicitly:
   #   docker compose run --rm seed

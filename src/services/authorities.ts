@@ -1,11 +1,11 @@
-// §6.2 — the authority register. Who may release records right now, under
-// which office order, until when.
+// §6.2 — the authority register. Who may release records right now, and until
+// when.
 import type { Queryable, Uuid } from '../domain/types.ts';
 import { appendEvent } from '../audit/events.ts';
 import { notify } from './notifications.ts';
 
 export const REGISTER_SQL = `
-SELECT a.id, a.order_reference, a.effective_from, a.effective_to, a.status,
+SELECT a.id, a.user_id, a.effective_from, a.effective_to, a.status,
        a.scope_dept_ids, a.remarks, a.created_at,
        u.full_name AS holder_name, u.staff_code AS holder_code,
        ib.full_name AS issued_by_name,
@@ -27,7 +27,6 @@ export async function list(db: Queryable, hideRevoked = false) {
 export interface IssueInput {
   issuerId: Uuid;
   toUserId: Uuid;
-  orderReference: string;
   effectiveFrom: Date;
   effectiveTo: Date;
   scopeDeptIds?: Uuid[] | null;
@@ -52,16 +51,15 @@ export async function issue(db: Queryable, input: IssueInput): Promise<IssueResu
 
   const { rows } = await db.query<{ id: string }>(
     `INSERT INTO approval_authorities
-       (user_id, issued_by, order_reference, effective_from, effective_to, scope_dept_ids, remarks)
-     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
-    [input.toUserId, input.issuerId, input.orderReference, input.effectiveFrom,
-     input.effectiveTo, input.scopeDeptIds ?? null, input.remarks ?? null],
+       (user_id, issued_by, effective_from, effective_to, scope_dept_ids, remarks)
+     VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+    [input.toUserId, input.issuerId, input.effectiveFrom, input.effectiveTo, input.scopeDeptIds ?? null, input.remarks ?? null],
   );
   const id = rows[0]!.id;
   await appendEvent(db, {
     eventType: 'AUTHORITY_ISSUED', actorId: input.issuerId, authorityId: id,
     detail: {
-      holder: input.toUserId, orderReference: input.orderReference,
+      holder: input.toUserId,
       effectiveTo: input.effectiveTo.toISOString(), scoped: input.scopeDeptIds !== null,
     },
   });
@@ -101,6 +99,43 @@ export async function transition(
   return true;
 }
 
+export type ExtendResult =
+  | { ok: true }
+  | { ok: false; reason: 'NOT_FOUND' | 'REVOKED' | 'SELF_EXTEND' | 'NOT_LATER' };
+
+/**
+ * Moves an authority's end date later. Only ever later: shortening one is what
+ * suspend and withdraw are for, and both leave a clearer trail. A suspended
+ * authority may be extended and stays suspended; a withdrawn one may not —
+ * that needs a fresh issue.
+ */
+export async function extend(
+  db: Queryable, id: Uuid, officerId: Uuid, newEffectiveTo: Date, reason?: string,
+): Promise<ExtendResult> {
+  const { rows: cur } = await db.query<{ user_id: string; status: string; effective_to: Date }>(
+    'SELECT user_id, status, effective_to FROM approval_authorities WHERE id = $1 FOR UPDATE', [id],
+  );
+  const a = cur[0];
+  if (!a) return { ok: false, reason: 'NOT_FOUND' };
+  if (a.status === 'REVOKED') return { ok: false, reason: 'REVOKED' };
+  // Same separation as issuing: nobody lengthens their own power to release.
+  if (a.user_id === officerId) return { ok: false, reason: 'SELF_EXTEND' };
+  if (newEffectiveTo <= a.effective_to || newEffectiveTo.getTime() <= Date.now()) {
+    return { ok: false, reason: 'NOT_LATER' };
+  }
+
+  await db.query('UPDATE approval_authorities SET effective_to = $2 WHERE id = $1', [id, newEffectiveTo]);
+  await appendEvent(db, {
+    eventType: 'AUTHORITY_EXTENDED', actorId: officerId, authorityId: id,
+    detail: {
+      from: a.effective_to.toISOString(), to: newEffectiveTo.toISOString(), reason: reason ?? null,
+    },
+  });
+  await notify(db, a.user_id, 'AUTHORITY_EXTENDED',
+    { authorityId: id, effectiveTo: newEffectiveTo.toISOString() });
+  return { ok: true };
+}
+
 /**
  * Grants opened under an authority stay live after it is withdrawn — the
  * releases were validly made. The register surfaces them so a controlling
@@ -125,20 +160,25 @@ export async function liveGrantsUnder(db: Queryable, authorityId: Uuid) {
 export async function warnExpiring(db: Queryable, warnDays: number[]): Promise<number> {
   let sent = 0;
   for (const d of warnDays) {
-    const { rows } = await db.query<{ id: string; user_id: string; issued_by: string }>(
-      `SELECT a.id, a.user_id, a.issued_by FROM approval_authorities a
+    // Keyed on the end date as well, so an authority that was extended is
+    // warned again before its new end rather than considered already warned.
+    const { rows } = await db.query<{ id: string; user_id: string; issued_by: string; until: string }>(
+      `SELECT a.id, a.user_id, a.issued_by, a.effective_to::text AS until
+         FROM approval_authorities a
         WHERE a.status = 'ACTIVE'
           AND a.effective_to BETWEEN now() AND now() + ($1 || ' days')::interval
           AND NOT EXISTS (
             SELECT 1 FROM notifications n
             WHERE n.kind = 'AUTHORITY_EXPIRING'
               AND n.payload->>'authorityId' = a.id::text
-              AND n.payload->>'window' = $1)`,
+              AND n.payload->>'window' = $1
+              AND coalesce(n.payload->>'until', a.effective_to::text) = a.effective_to::text)`,
       [String(d)],
     );
     for (const a of rows) {
-      await notify(db, a.user_id, 'AUTHORITY_EXPIRING', { authorityId: a.id, window: String(d) });
-      await notify(db, a.issued_by, 'AUTHORITY_EXPIRING', { authorityId: a.id, window: String(d) });
+      const payload = { authorityId: a.id, window: String(d), until: a.until };
+      await notify(db, a.user_id, 'AUTHORITY_EXPIRING', payload);
+      await notify(db, a.issued_by, 'AUTHORITY_EXPIRING', payload);
       sent += 2;
     }
   }

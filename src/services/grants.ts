@@ -13,7 +13,7 @@ SELECT g.id, g.valid_from, g.valid_until, g.origin, g.max_views, g.view_count,
        d.name AS holder_dept,
        r.ppo_number, r.employee_name,
        gb.full_name AS granted_by_name,
-       a.order_reference, a.id AS authority_id, a.status AS authority_status,
+       a.id AS authority_id, a.status AS authority_status,
        q.request_no
 FROM access_grants g
 JOIN users u        ON u.id = g.user_id

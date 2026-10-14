@@ -77,5 +77,5 @@ export interface AccessRequest {
 }
 
 export interface LiveAuthority {
-  id: string; orderReference: string; scopeDeptIds: string[] | null; effectiveTo: string;
+  id: string; scopeDeptIds: string[] | null; effectiveTo: string;
 }

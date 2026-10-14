@@ -26,7 +26,7 @@ export function InboxPage() {
 
       {authority ? (
         <Banner kind={left != null && left <= 14 ? 'warn' : 'ok'}>
-          <strong>Authority {authority.orderReference}</strong> — you may release records
+          <strong>Live authority</strong> — you may release records
           {authority.scopeDeptIds ? ' to your scoped departments' : ' to any user department'}
           {' '}until {fmtDate(authority.effectiveTo)}
           {left != null && left <= 14 && ` · ${left} day${left === 1 ? '' : 's'} left`}.
@@ -34,8 +34,8 @@ export function InboxPage() {
       ) : (
         <Banner kind="warn">
           <strong>You hold no live approval authority.</strong> You can read any record, but you
-          cannot release one to another department until a controlling officer issues an authority
-          against a written office order.
+          cannot release one to another department until a controlling officer issues you an
+          authority.
         </Banner>
       )}
 
@@ -54,8 +54,14 @@ function DecisionCard({ request, canDecide, onDone }: {
   request: AccessRequest; canDecide: boolean; onDone: () => void;
 }) {
   const pending = (request.items ?? []).filter((i) => i.id && i.status === 'PENDING');
-  const [days, setDays] = useState(15);
-  const [custom, setCustom] = useState(false);
+  // What the requester asked for, so the officer starts from it rather than a
+  // default they have to remember to change.
+  const askedDays = request.requested_from && request.requested_to
+    ? Math.max(1, Math.round(
+      (Date.parse(request.requested_to) - Date.parse(request.requested_from)) / 86_400_000))
+    : null;
+  const [days, setDays] = useState(askedDays ? Math.min(180, askedDays) : 15);
+  const [custom, setCustom] = useState(askedDays != null && !DURATIONS.includes(askedDays));
   const [remarks, setRemarks] = useState('');
   const [chosen, setChosen] = useState<Set<string>>(new Set(pending.map((i) => i.id)));
   const [error, setError] = useState<string | null>(null);
@@ -94,12 +100,18 @@ function DecisionCard({ request, canDecide, onDone }: {
           <p className="hint" style={{ marginTop: 4 }}>
             {request.requester_name} ({request.requester_code}) · {request.requester_dept}
             {' · '}submitted {fmtDateTime(request.submitted_at)}
-            {request.requested_to && ` · asked until ${fmtDate(request.requested_to)}`}
           </p>
         </div>
       </div>
 
       {error && <Banner>{error}</Banner>}
+
+      {askedDays != null && (
+        <p style={{ fontSize: '0.88rem' }}>
+          Asked for <strong>{askedDays} {askedDays === 1 ? 'day' : 'days'}</strong>
+          {' '}({fmtDate(request.requested_from)} – {fmtDate(request.requested_to)})
+        </p>
+      )}
 
       <p style={{ fontSize: '0.88rem', color: 'var(--ink-2)' }}>{request.purpose}</p>
 

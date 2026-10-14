@@ -1,6 +1,7 @@
 # The compose db bind-mounts its data directory here. It is root-owned, so it
 # breaks the build context outright, and it has no business in an image.
 pgdata/
+pgdata18/
 
 .git/
 node_modules/

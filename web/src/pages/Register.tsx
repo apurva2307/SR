@@ -9,7 +9,7 @@ interface RegisterRow {
   id: string; valid_from: string; valid_until: string; origin: string;
   holder_name: string; holder_code: string; holder_dept: string;
   ppo_number: string; employee_name: string; granted_by_name: string;
-  order_reference: string; authority_status: string; request_no: string | null;
+  authority_status: string; request_no: string | null;
 }
 
 interface MyGrant {
@@ -94,7 +94,7 @@ function AllGrants() {
       <div className="page-head"><h1>Live access register</h1></div>
       <p className="dek">
         Every open door in the system, soonest to close first. Each row names the officer who
-        released it and the office order they acted under.
+        released it and the state of the authority they acted under.
       </p>
 
       {problem && <Banner>{problem}</Banner>}
@@ -108,7 +108,7 @@ function AllGrants() {
             <thead>
               <tr>
                 <th>Closes</th><th>Record</th><th>Released to</th>
-                <th>Released by</th><th>Under order</th><th>Origin</th>
+                <th>Released by</th><th>Authority</th><th>Origin</th>
                 {can('APPROVER', 'CUSTODIAN') && <th></th>}
               </tr>
             </thead>
@@ -135,10 +135,9 @@ function AllGrants() {
                     </td>
                     <td>{g.granted_by_name}</td>
                     <td>
-                      <span className="mono">{g.order_reference}</span>
-                      {g.authority_status !== 'ACTIVE' && (
-                        <div><span className="pill stop">{g.authority_status}</span></div>
-                      )}
+                      <span className={`pill ${g.authority_status === 'ACTIVE' ? 'ok' : 'stop'}`}>
+                        {g.authority_status}
+                      </span>
                     </td>
                     <td>
                       <span className={`pill ${g.origin === 'EMERGENCY' ? 'warn' : 'neutral'}`}>

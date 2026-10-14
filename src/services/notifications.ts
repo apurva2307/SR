@@ -5,7 +5,7 @@ import type { Queryable, Uuid } from '../domain/types.ts';
 export type NotificationKind =
   | 'REQUEST_AWAITING_DECISION' | 'REQUEST_DECIDED'
   | 'GRANT_EXPIRING' | 'GRANT_REVOKED'
-  | 'AUTHORITY_EXPIRING' | 'AUTHORITY_ISSUED' | 'AUTHORITY_WITHDRAWN'
+  | 'AUTHORITY_EXPIRING' | 'AUTHORITY_ISSUED' | 'AUTHORITY_EXTENDED' | 'AUTHORITY_WITHDRAWN'
   | 'QUARANTINE_WAITING' | 'INTEGRITY_ALERT';
 
 export async function notify(

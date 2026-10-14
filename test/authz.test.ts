@@ -7,6 +7,7 @@ import { checkGrant, consumeView } from '../src/authz/grantCheck.ts';
 import { assertMayRelease, findLiveAuthority } from '../src/authz/authorityCheck.ts';
 import { appendEvent, verifyChain } from '../src/audit/events.ts';
 import { revoke as revokeGrant } from '../src/services/grants.ts';
+import { extend } from '../src/services/authorities.ts';
 import { seed, issueAuthority, issueGrant, type World } from './helpers/fixtures.ts';
 
 const url = process.env.DATABASE_URL;
@@ -151,11 +152,10 @@ describe('authorisation', { skip: url ? false : 'DATABASE_URL not set' }, () => 
       );
     });
 
-    test('a live authority permits release and returns the office order', async () => {
+    test('a live authority permits release and returns itself', async () => {
       const a = await issueAuthority(w, { to: w.users.approver });
       const live = await release(w.users.approver);
       assert.equal(live.id, a);
-      assert.equal(live.orderReference, 'AC/ORD/2026/17');
     });
 
     test('a suspended authority refuses — leave is not a permission', async () => {
@@ -237,6 +237,36 @@ describe('authorisation', { skip: url ? false : 'DATABASE_URL not set' }, () => 
   });
 
   // -------------------------------------------------------------------------
+  describe('§6.2 extending an authority', () => {
+    const inDays = (n: number) => new Date(Date.now() + n * 86_400_000);
+
+    test('a later end date keeps the authority live past its old end', async () => {
+      const a = await issueAuthority(w, { to: w.users.approver, to_: '5 days' });
+      assert.deepEqual(await extend(db, a, w.users.controller, inDays(200)), { ok: true });
+      const live = await findLiveAuthority(db, w.users.approver);
+      assert.ok(live && live.effectiveTo.getTime() > inDays(199).getTime());
+    });
+
+    test('only ever later — shortening is what suspend and withdraw are for', async () => {
+      const a = await issueAuthority(w, { to: w.users.approver, to_: '90 days' });
+      assert.deepEqual(await extend(db, a, w.users.controller, inDays(30)),
+        { ok: false, reason: 'NOT_LATER' });
+    });
+
+    test('nobody extends their own authority', async () => {
+      const a = await issueAuthority(w, { to: w.users.controller, by: w.users.controller2 });
+      assert.deepEqual(await extend(db, a, w.users.controller, inDays(400)),
+        { ok: false, reason: 'SELF_EXTEND' });
+    });
+
+    test('a withdrawn authority stays withdrawn', async () => {
+      const a = await issueAuthority(w, { to: w.users.approver, status: 'REVOKED' });
+      assert.deepEqual(await extend(db, a, w.users.controller, inDays(400)),
+        { ok: false, reason: 'REVOKED' });
+    });
+  });
+
+  // -------------------------------------------------------------------------
   describe('constraints that outlive the application code', () => {
     test('a grant cannot be issued without naming the authority behind it', async () => {
       await assert.rejects(
@@ -285,7 +315,7 @@ describe('authorisation', { skip: url ? false : 'DATABASE_URL not set' }, () => 
       await appendEvent(db, {
         eventType: 'GRANT_CREATED', actorId: w.users.approver,
         grantId: g, authorityId: a, serviceRecordId: w.record,
-        detail: { orderReference: 'AC/ORD/2026/17' },
+        detail: { releasedTo: w.users.requester },
       });
       await appendEvent(db, {
         eventType: 'PAGE_SERVED', actorId: w.users.requester,

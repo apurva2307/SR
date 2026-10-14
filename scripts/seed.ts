@@ -121,14 +121,14 @@ async function main() {
   // role and can read everything, but can release nothing.
   await db.query(
     `INSERT INTO approval_authorities
-       (user_id, issued_by, order_reference, effective_from, effective_to, remarks)
-     VALUES ($1,$2,'AC/ORD/2026/17', now() - interval '30 days', now() + interval '300 days',
+       (user_id, issued_by, effective_from, effective_to, remarks)
+     VALUES ($1,$2, now() - interval '30 days', now() + interval '300 days',
              'Standing authority for pension case work.')`,
     [approver, controller]);
   await db.query(
     `INSERT INTO approval_authorities
-       (user_id, issued_by, order_reference, effective_from, effective_to, scope_dept_ids, remarks)
-     VALUES ($1,$2,'AC/ORD/2026/03', now() - interval '10 days', now() + interval '9 days', $3,
+       (user_id, issued_by, effective_from, effective_to, scope_dept_ids, remarks)
+     VALUES ($1,$2, now() - interval '10 days', now() + interval '9 days', $3,
              'Scoped to Public Works. Expires soon on purpose.')`,
     [controller, approver, [works]]);
 

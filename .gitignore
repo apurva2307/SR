@@ -6,4 +6,5 @@ dist/
 .env.local
 *.log
 pgdata/
+pgdata18/
 service-records/

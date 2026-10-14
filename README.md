@@ -11,10 +11,10 @@ Section markers in the code (§6.1, §8.1, …) point into that document.
 
 **Reading is a role; releasing is an authorisation.** Accounts staff read any
 record, because that is the job. Releasing one to another department requires a
-live row in `approval_authorities` — issued by a controlling officer, tied to a
-written office order, bounded by dates. The `APPROVER` role on its own releases
+live row in `approval_authorities` — issued by a controlling officer, bounded by
+dates. The `APPROVER` role on its own releases
 nothing. Every grant carries `granted_under_authority_id NOT NULL`, so each open
-door traces to a named officer and a written order, permanently, even after that
+door traces to a named officer and a dated authority, permanently, even after that
 authority is withdrawn.
 
 **Screen-only is structural, not a setting.** No endpoint returns a PDF. The
@@ -29,14 +29,14 @@ Six roles, defined as much by what they cannot do as by what they can. Roles are
 additive and attach to a person, not a department — one Accounts officer commonly
 holds several.
 
-| Role | Usually held by | Can | Cannot |
-|---|---|---|---|
-| **Requester** | User department staff | Search the catalogue, raise and withdraw requests, read records covered by a live grant | Open anything without a grant; see who else requested a record |
-| **Approver** | Accounts | Read any record, and revoke a grant. Decide requests item by item, shorten a requested period, issue an emergency grant — those three **only while holding a live approval authority** | Release anything once that authority lapses or is withdrawn; decide a request they raised themselves |
-| **Controlling officer** | Senior Accounts | Everything an approver can, plus issue, suspend, resume and withdraw approval authorities against a written office order | Issue an authority to themselves — that needs a second controlling officer |
-| **Custodian** | Accounts | Read any record. Run ingestion, resolve quarantine, correct metadata, verify integrity, issue an emergency grant (with a live authority) | Edit or delete an audit event; write to the source folder |
-| **Auditor** | Anywhere | Read the full audit log, every denial, every reading session; export CSV; view the live access register and the authority register | **Open any record** — an auditor sees who looked, never what they looked at |
-| **Administrator** | IT | Create, rename, deactivate and delete departments; create users, assign roles, issue password-reset codes, enable 2FA, suspend accounts, change policy settings | **Open any record** by virtue of being an administrator |
+| Role                    | Usually held by       | Can                                                                                                                                                                                    | Cannot                                                                                               |
+| ----------------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| **Requester**           | User department staff | Search the catalogue, raise and withdraw requests, read records covered by a live grant                                                                                                | Open anything without a grant; see who else requested a record                                       |
+| **Approver**            | Accounts              | Read any record, and revoke a grant. Decide requests item by item, shorten a requested period, issue an emergency grant — those three **only while holding a live approval authority** | Release anything once that authority lapses or is withdrawn; decide a request they raised themselves |
+| **Controlling officer** | Senior Accounts       | Everything an approver can, plus issue, suspend, resume and withdraw approval authorities                                                                                              | Issue an authority to themselves — that needs a second controlling officer                           |
+| **Custodian**           | Accounts              | Read any record. Run ingestion, resolve quarantine, correct metadata, verify integrity, issue an emergency grant (with a live authority)                                               | Edit or delete an audit event; write to the source folder                                            |
+| **Auditor**             | Anywhere              | Read the full audit log, every denial, every reading session; export CSV; view the live access register and the authority register                                                     | **Open any record** — an auditor sees who looked, never what they looked at                          |
+| **Administrator**       | IT                    | Create, rename, deactivate and delete departments; create users, assign roles, issue password-reset codes, enable 2FA, suspend accounts, change policy settings                        | **Open any record** by virtue of being an administrator                                              |
 
 ### Reading is a role. Releasing is an authorisation.
 
@@ -47,15 +47,14 @@ specific authorisation.
 
 So **the approver role by itself does nothing**. It marks a person as eligible.
 What actually lets them release a record is a live row in `approval_authorities`
-— issued by a controlling officer, tied to a written office order, bounded by
-dates, revocable in one click, and optionally scoped to particular departments.
+— issued by a controlling officer, bounded by dates, revocable in one click, and optionally scoped to particular departments.
 
-| Situation | Can read records | Can release records |
-|---|---|---|
-| Approver with a live authority | Yes | Yes |
-| Approver whose authority is suspended (on leave) | Yes | No |
-| Approver whose authority expired (transferred out) | Yes | No |
-| Approver who never held one | Yes | No |
+| Situation                                          | Can read records | Can release records |
+| -------------------------------------------------- | ---------------- | ------------------- |
+| Approver with a live authority                     | Yes              | Yes                 |
+| Approver whose authority is suspended (on leave)   | Yes              | No                  |
+| Approver whose authority expired (transferred out) | Yes              | No                  |
+| Approver who never held one                        | Yes              | No                  |
 
 An officer on leave has their authority suspended and keeps reading normally. An
 officer who transfers out loses the power to release on the date the authority
@@ -83,22 +82,22 @@ An **approver** works the request queue. They see what user departments have
 asked for, decide it record by record, set the period, and can revoke. This is
 the daily job.
 
-A **controlling officer** never touches the request queue. They decide *who is
-allowed to work it* — issuing an approval authority against a written office
+A **controlling officer** never touches the request queue. They decide _who is
+allowed to work it_ — issuing an approval authority against a written office
 order, suspending it when someone goes on leave, withdrawing it on transfer.
 This is an occasional, deliberate act.
 
 The two are genuinely independent, and the demo data proves it:
 
-| | `AC004` Ravi Menon<br>controlling officer only | `AC002` Nalini Iyer<br>approver, no authority | `AC001` Vikram Bose<br>approver with authority |
-|---|---|---|---|
-| Read any record | Yes | Yes | Yes |
-| Decide a request | **No** — `403, needs APPROVER` | **No** — `403 NO_APPROVAL_AUTHORITY` | Yes |
-| Issue an approval authority | **Yes** | No | No |
+|                             | `AC004` Ravi Menon<br>controlling officer only | `AC002` Nalini Iyer<br>approver, no authority | `AC001` Vikram Bose<br>approver with authority |
+| --------------------------- | ---------------------------------------------- | --------------------------------------------- | ---------------------------------------------- |
+| Read any record             | Yes                                            | Yes                                           | Yes                                            |
+| Decide a request            | **No** — `403, needs APPROVER`                 | **No** — `403 NO_APPROVAL_AUTHORITY`          | Yes                                            |
+| Issue an approval authority | **Yes**                                        | No                                            | No                                             |
 
 So a controlling officer with no approver role cannot release a single record,
 and an approver cannot appoint themselves. Neither can do the other's job, and
-that is the point: the person who decides *who may release records* is not the
+that is the point: the person who decides _who may release records_ is not the
 person releasing them.
 
 Sign in as `AC004`, issue an authority to `AC002`, then sign in as `AC002` —
@@ -107,31 +106,31 @@ changing. That is the whole idea in two minutes.
 
 `AC000` Padma Ramanathan holds **both** roles, which is the common real-world
 arrangement: a senior officer who both appoints and works the queue. Note that
-even she needed a *second* controlling officer to issue her own authority — the
+even she needed a _second_ controlling officer to issue her own authority — the
 database refuses a self-issued one outright.
 
 ### Who can do what, endpoint by endpoint
 
-| Action | Requirement |
-|---|---|
-| Search the catalogue, view record metadata | Any signed-in account |
-| Raise, submit or withdraw a request | Any signed-in account (the requester role is the default marker, not a gate) |
-| Read a page of a record | A live grant, **or** the approver / custodian / controlling-officer role |
-| Decide a request | Approver role **and** a live authority **and** not the requester |
-| Issue an emergency grant | Approver or custodian role **and** a live authority |
-| Revoke a grant | Approver or custodian role. *No authority required* — see the note below |
-| Issue or withdraw an approval authority | Controlling officer |
-| View the live access register | Approver, custodian, controlling officer, or auditor |
-| View the authority register | Approver, controlling officer, or auditor — *not* custodian |
-| Run ingestion, resolve quarantine, verify integrity | Custodian |
-| Read the audit log | Auditor or administrator |
-| View the staff list | Administrator or controlling officer — the latter needs it to issue an authority to a named person |
-| Edit your own name, email and designation | Any signed-in account, on their own profile only |
-| Manage users, roles and settings | Administrator |
-| Create, rename, deactivate or delete a department | Administrator |
+| Action                                              | Requirement                                                                                        |
+| --------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Search the catalogue, view record metadata          | Any signed-in account                                                                              |
+| Raise, submit or withdraw a request                 | Any signed-in account (the requester role is the default marker, not a gate)                       |
+| Read a page of a record                             | A live grant, **or** the approver / custodian / controlling-officer role                           |
+| Decide a request                                    | Approver role **and** a live authority **and** not the requester                                   |
+| Issue an emergency grant                            | Approver or custodian role **and** a live authority                                                |
+| Revoke a grant                                      | Approver or custodian role. _No authority required_ — see the note below                           |
+| Issue or withdraw an approval authority             | Controlling officer                                                                                |
+| View the live access register                       | Approver, custodian, controlling officer, or auditor                                               |
+| View the authority register                         | Approver, controlling officer, or auditor — _not_ custodian                                        |
+| Run ingestion, resolve quarantine, verify integrity | Custodian                                                                                          |
+| Read the audit log                                  | Auditor or administrator                                                                           |
+| View the staff list                                 | Administrator or controlling officer — the latter needs it to issue an authority to a named person |
+| Edit your own name, email and designation           | Any signed-in account, on their own profile only                                                   |
+| Manage users, roles and settings                    | Administrator                                                                                      |
+| Create, rename, deactivate or delete a department   | Administrator                                                                                      |
 
 Revoking a grant needs the role but not a live authority, deliberately —
-see §6.2.1 of the design. Authorisation gates *additions* of privilege, never
+see §6.2.1 of the design. Authorisation gates _additions_ of privilege, never
 removals. An authority is a bounded, expiring thing, and the moment it lapses is
 exactly when its holder is most likely to want to pull back something they
 released. Gating revocation behind it would mean the safety action expires along
@@ -269,7 +268,7 @@ docker compose run --rm ingest          # after adding PDFs to ./service-records
 docker compose run --rm reparse-names   # dry run, after a parser change
 docker compose run --rm reparse-names --apply
 docker compose logs -f app
-docker compose down                     # keeps ./pgdata; `down -v` does not
+docker compose down                     # keeps ./pgdata18; `down -v` does not
 ```
 
 Rebuild after changing code — `up -d` alone reuses the existing images:
@@ -310,17 +309,17 @@ Open <http://localhost:3100>. With Node installed locally, drop the
 Created by `npm run seed`, and only there. All share the password
 `ChangeMeToday!2026`.
 
-| Staff code | Who | Shows off |
-|---|---|---|
-| `PW001` | Arun Deshpande, Public Works | Search, request, read |
-| `ED001` | Thomas Varkey, Education | A second requesting department |
-| `AC001` | Vikram Bose, Accounts | Approver **with** a live authority |
-| `AC002` | Nalini Iyer, Accounts | Approver with **no** authority — reads everything, releases nothing |
-| `AC000` | Padma Ramanathan, Accounts | Controlling officer **and** approver — the common real-world pairing |
-| `AC003` | Joseph Mathai, Accounts | Custodian: ingestion and quarantine |
-| `AC004` | Ravi Menon, Accounts | Controlling officer **only** — issues authorities, decides no requests |
-| `AU001` | Grace Fernandes | Auditor: the log, denials, reading sessions |
-| `IT001` | Sandeep Nair | Administrator: users, roles, policy — **cannot open records** |
+| Staff code | Who                          | Shows off                                                              |
+| ---------- | ---------------------------- | ---------------------------------------------------------------------- |
+| `PW001`    | Arun Deshpande, Public Works | Search, request, read                                                  |
+| `ED001`    | Thomas Varkey, Education     | A second requesting department                                         |
+| `AC001`    | Vikram Bose, Accounts        | Approver **with** a live authority                                     |
+| `AC002`    | Nalini Iyer, Accounts        | Approver with **no** authority — reads everything, releases nothing    |
+| `AC000`    | Padma Ramanathan, Accounts   | Controlling officer **and** approver — the common real-world pairing   |
+| `AC003`    | Joseph Mathai, Accounts      | Custodian: ingestion and quarantine                                    |
+| `AC004`    | Ravi Menon, Accounts         | Controlling officer **only** — issues authorities, decides no requests |
+| `AU001`    | Grace Fernandes              | Auditor: the log, denials, reading sessions                            |
+| `IT001`    | Sandeep Nair                 | Administrator: users, roles, policy — **cannot open records**          |
 
 Sign in as `AC002` and then `AC001` to see the difference an authority makes, and
 as `AC004` to see the difference between an approver and a controlling officer.
@@ -369,7 +368,7 @@ holding the phone.
 4. Only when a code verifies does the secret become live. An abandoned setup
    leaves nothing behind.
 
-**Clear 2FA** is the lost-phone path: it wipes the enrolment *and* the
+**Clear 2FA** is the lost-phone path: it wipes the enrolment _and_ the
 requirement, so the user can sign in with their password and start again.
 Leaving the requirement in place would lock them out of their own recovery.
 **Make 2FA optional** lifts the requirement but keeps an existing enrolment.
@@ -420,7 +419,7 @@ it never leaves the machine and is not part of the user account.
 There are three states, not two, which is worth knowing if you touch the CSS.
 An explicit choice stamps `data-theme` on `<html>`; the default "Auto" stamps
 nothing and leaves `prefers-color-scheme` to decide. So every colour token is
-defined on bare `:root` first and only *redefined* under the media query and the
+defined on bare `:root` first and only _redefined_ under the media query and the
 `[data-theme="dark"]` selector. A token that exists only inside a media query
 is the classic bug that renders one theme's text on the other theme's
 background.
@@ -494,3 +493,7 @@ Email delivery for notifications (they are written to the `notifications` table
 and surfaced in-app; a sender is the missing piece), SSO/LDAP, and OCR. §14 of
 the design covers the suggested order.
 yes
+
+## New Admin creation:
+
+docker compose run --rm -e BOOTSTRAP_STAFF_CODE=EDP001 -e "BOOTSTRAP_NAME=Utkarsh Tripathi" -e BOOTSTRAP_DEPT_CODE=EDP -e "BOOTSTRAP_DEPT_NAME=EDP Department" -e BOOTSTRAP_ROLES=ADMIN bootstrap

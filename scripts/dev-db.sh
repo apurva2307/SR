@@ -16,7 +16,7 @@ case "${1:-up}" in
     docker rm -f "$NAME" >/dev/null 2>&1 || true
     docker run -d --name "$NAME" \
       -e POSTGRES_USER=sr -e POSTGRES_PASSWORD=sr -e POSTGRES_DB=service_records \
-      -p "$PORT":5432 postgres:16-alpine >/dev/null
+      -p "$PORT":5432 postgres:18-alpine >/dev/null
     printf 'waiting for postgres'
     for _ in $(seq 1 60); do
       if docker exec "$NAME" pg_isready -U sr -d service_records >/dev/null 2>&1; then

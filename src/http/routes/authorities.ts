@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { getPool } from '../../db.ts';
-import { issue, list, liveGrantsUnder, transition } from '../../services/authorities.ts';
+import { getPool, withTransaction } from '../../db.ts';
+import { extend, issue, list, liveGrantsUnder, transition } from '../../services/authorities.ts';
 import { requireAuth, requireRole } from '../middleware/auth.ts';
 import { wrap } from '../middleware/errors.ts';
 import { param, uuidParam } from '../middleware/context.ts';
@@ -22,7 +22,6 @@ authorityRoutes.get('/:id/grants', requireRole('CONTROLLING_OFFICER', 'AUDITOR')
 
 const issueBody = z.object({
   toUserId: z.string().uuid(),
-  orderReference: z.string().trim().min(3, 'Give the office order number this authority rests on.'),
   effectiveFrom: z.coerce.date(),
   effectiveTo: z.coerce.date(),
   scopeDeptIds: z.array(z.string().uuid()).nullable().optional(),
@@ -47,7 +46,6 @@ authorityRoutes.post('/', requireRole('CONTROLLING_OFFICER'), wrap(async (req, r
   const out = await issue(getPool(), {
     issuerId: req.principal!.id,
     toUserId: body.data.toUserId,
-    orderReference: body.data.orderReference,
     effectiveFrom: body.data.effectiveFrom,
     effectiveTo: body.data.effectiveTo,
     scopeDeptIds: body.data.scopeDeptIds ?? null,
@@ -58,6 +56,34 @@ authorityRoutes.post('/', requireRole('CONTROLLING_OFFICER'), wrap(async (req, r
     return;
   }
   res.status(201).json({ id: out.id });
+}));
+
+const extendBody = z.object({
+  effectiveTo: z.coerce.date(),
+  reason: z.string().trim().max(500).optional(),
+});
+
+const EXTEND_MESSAGES = {
+  NOT_FOUND: 'That authority no longer exists.',
+  REVOKED: 'A withdrawn authority cannot be extended. Issue a new one instead.',
+  SELF_EXTEND: 'You cannot extend your own authority. Another controlling officer must do it.',
+  NOT_LATER: 'The new end date must fall after the current one, and in the future.',
+} as const;
+
+authorityRoutes.post('/:id/extend', requireRole('CONTROLLING_OFFICER'), wrap(async (req, res) => {
+  const body = extendBody.safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ error: 'BAD_REQUEST', message: 'Give the new end date.' });
+    return;
+  }
+  const out = await withTransaction((tx) => extend(tx, param(req, 'id'), req.principal!.id,
+    body.data.effectiveTo, body.data.reason));
+  if (!out.ok) {
+    res.status(out.reason === 'NOT_FOUND' ? 404 : 400)
+      .json({ error: out.reason, message: EXTEND_MESSAGES[out.reason] });
+    return;
+  }
+  res.json({ ok: true });
 }));
 
 const transitionBody = z.object({ reason: z.string().trim().max(500).optional() });

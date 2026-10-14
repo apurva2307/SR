@@ -14,7 +14,7 @@ import { noApprovalAuthority, outOfAuthorityScope, selfApproval } from '../domai
  * is exactly when its holder most wants to pull back what they released.
  */
 export const AUTHORITY_CHECK_SQL = `
-SELECT a.id, a.order_reference, a.scope_dept_ids, a.effective_to
+SELECT a.id, a.scope_dept_ids, a.effective_to
 FROM   approval_authorities a
 JOIN   user_roles ur ON ur.user_id = a.user_id
                     AND ur.role_id = 'APPROVER'
@@ -30,7 +30,6 @@ LIMIT 1
 
 export interface LiveAuthority {
   id: Uuid;
-  orderReference: string;
   /** null = may release to any user department. */
   scopeDeptIds: Uuid[] | null;
   effectiveTo: Date;
@@ -38,7 +37,6 @@ export interface LiveAuthority {
 
 interface Row {
   id: Uuid;
-  order_reference: string;
   scope_dept_ids: Uuid[] | null;
   effective_to: Date;
 }
@@ -53,7 +51,6 @@ export async function findLiveAuthority(
   if (!row) return null;
   return {
     id: row.id,
-    orderReference: row.order_reference,
     scopeDeptIds: row.scope_dept_ids,
     effectiveTo: row.effective_to,
   };
@@ -71,8 +68,8 @@ export interface ReleaseContext {
  * caller that forgets to check the return value still fails closed.
  *
  * The returned authority id belongs in access_grants.granted_under_authority_id,
- * which is NOT NULL: every open door traces to a named officer, a written
- * office order, and a date range during which they held the power to open it.
+ * which is NOT NULL: every open door traces to a named officer and a date
+ * range during which they held the power to open it.
  */
 export async function assertMayRelease(
   db: Queryable,

@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { api, ApiError } from '../api';
 import { useAuth } from '../auth';
 import { useLoad, fmtDate, daysLeft } from '../hooks';
 import { Banner, Empty, Spinner } from '../components/bits';
 
 interface Authority {
-  id: string; order_reference: string; effective_from: string; effective_to: string;
+  id: string; user_id: string; effective_from: string; effective_to: string;
   status: string; scope_dept_ids: string[] | null; remarks: string | null;
   holder_name: string; holder_code: string; issued_by_name: string;
   is_live: boolean; live_grants: string;
@@ -26,6 +26,7 @@ export function AuthoritiesPage() {
   const depts = useLoad<{ departments: Dept[] }>(canIssue ? '/admin/departments' : null, [canIssue]);
   const [problem, setProblem] = useState<string | null>(null);
   const [showIssue, setShowIssue] = useState(false);
+  const [extending, setExtending] = useState<string | null>(null);
 
   if (list.loading) return <Spinner />;
 
@@ -54,7 +55,7 @@ export function AuthoritiesPage() {
         )}
       </div>
       <p className="dek">
-        Who may release records to other departments right now, under which office order, and until when.
+        Who may release records to other departments right now, and until when.
         Holding the approver role is not enough on its own.
       </p>
 
@@ -78,7 +79,7 @@ export function AuthoritiesPage() {
           <table>
             <thead>
               <tr>
-                <th>Officer</th><th>Order</th><th>In force</th><th>Scope</th>
+                <th>Officer</th><th>In force</th><th>Scope</th>
                 <th>State</th><th>Open grants</th><th>Issued by</th>
                 {canIssue && <th></th>}
               </tr>
@@ -87,12 +88,12 @@ export function AuthoritiesPage() {
               {authorities.map((a) => {
                 const left = daysLeft(a.effective_to);
                 return (
-                  <tr key={a.id}>
+                  <Fragment key={a.id}>
+                  <tr>
                     <td>
                       {a.holder_name}
                       <div style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>{a.holder_code}</div>
                     </td>
-                    <td className="mono nowrap">{a.order_reference}</td>
                     <td className="nowrap">
                       {fmtDate(a.effective_from)} – {fmtDate(a.effective_to)}
                       {a.is_live && left != null && left <= 14 && (
@@ -115,6 +116,12 @@ export function AuthoritiesPage() {
                         {a.status === 'SUSPENDED' && (
                           <button className="small" onClick={() => void act(a.id, 'resume')}>Resume</button>
                         )}
+                        {a.status !== 'REVOKED' && a.user_id !== principal?.id && (
+                          <button className="small" style={{ marginLeft: 6 }}
+                            onClick={() => setExtending((cur) => (cur === a.id ? null : a.id))}>
+                            {extending === a.id ? 'Cancel' : 'Extend'}
+                          </button>
+                        )}
                         {a.status !== 'REVOKED' && (
                           <button className="small danger" style={{ marginLeft: 6 }}
                             onClick={() => void act(a.id, 'revoke')}>Withdraw</button>
@@ -122,6 +129,15 @@ export function AuthoritiesPage() {
                       </td>
                     )}
                   </tr>
+                  {extending === a.id && (
+                    <tr>
+                      <td colSpan={canIssue ? 7 : 6}>
+                        <ExtendForm authority={a}
+                          onDone={() => { setExtending(null); void list.reload(); }} />
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 );
               })}
             </tbody>
@@ -137,11 +153,65 @@ export function AuthoritiesPage() {
   );
 }
 
+const EXTEND_MONTHS = [3, 6, 12, 24];
+
+/** Lengthens an authority from its current end — or from today, if it has
+ *  already lapsed — so the officer picks a period, not a date to compute. */
+function ExtendForm({ authority, onDone }: { authority: Authority; onDone: () => void }) {
+  const [months, setMonths] = useState(12);
+  const [reason, setReason] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const base = new Date(Math.max(Date.parse(authority.effective_to), Date.now()));
+  const to = new Date(base); to.setMonth(to.getMonth() + months);
+
+  async function submit() {
+    setBusy(true); setError(null);
+    try {
+      await api.post(`/authorities/${authority.id}/extend`, {
+        effectiveTo: to.toISOString(), reason: reason.trim() || undefined,
+      });
+      onDone();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Could not extend the authority.');
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div style={{ padding: '6px 0' }}>
+      {error && <Banner>{error}</Banner>}
+      <div className="field">
+        <label>Extend {authority.holder_name}'s authority by</label>
+        <div className="duration-row">
+          {EXTEND_MONTHS.map((m) => (
+            <button key={m} className={months === m ? 'on' : ''} onClick={() => setMonths(m)}>
+              {m} months
+            </button>
+          ))}
+        </div>
+        <p className="hint">
+          Currently ends {fmtDate(authority.effective_to)}. New end{' '}
+          <strong>{to.toLocaleDateString(undefined,
+            { day: 'numeric', month: 'long', year: 'numeric' })}</strong>.
+          {authority.status === 'SUSPENDED' && ' It stays suspended until resumed.'}
+        </p>
+      </div>
+      <div className="field">
+        <label htmlFor={`ext-${authority.id}`}>Reason (optional)</label>
+        <input id={`ext-${authority.id}`} value={reason} onChange={(e) => setReason(e.target.value)} />
+      </div>
+      <button className="primary" disabled={busy} onClick={() => void submit()}>
+        {busy ? 'Extending…' : 'Extend authority'}
+      </button>
+    </div>
+  );
+}
+
 function IssueForm({ users, departments, onDone }: {
   users: User[]; departments: Dept[]; onDone: () => void;
 }) {
   const [toUserId, setToUserId] = useState('');
-  const [orderReference, setOrderReference] = useState('');
   const [months, setMonths] = useState(12);
   const [scoped, setScoped] = useState(false);
   const [scope, setScope] = useState<Set<string>>(new Set());
@@ -156,7 +226,7 @@ function IssueForm({ users, departments, onDone }: {
     setBusy(true); setError(null);
     try {
       await api.post('/authorities', {
-        toUserId, orderReference: orderReference.trim(),
+        toUserId,
         effectiveFrom: from.toISOString(), effectiveTo: to.toISOString(),
         scopeDeptIds: scoped ? [...scope] : null,
         remarks: remarks.trim() || null,
@@ -172,20 +242,13 @@ function IssueForm({ users, departments, onDone }: {
       <h2 style={{ marginBottom: 14 }}>Issue an approval authority</h2>
       {error && <Banner>{error}</Banner>}
 
-      <div className="row">
-        <div className="field">
-          <label htmlFor="officer">Officer</label>
-          <select id="officer" value={toUserId} onChange={(e) => setToUserId(e.target.value)}>
-            <option value="">Choose an approver…</option>
-            {users.map((u) => <option key={u.id} value={u.id}>{u.full_name} ({u.staff_code})</option>)}
-          </select>
-          <p className="hint">Only officers holding the approver role are listed. You cannot pick yourself.</p>
-        </div>
-        <div className="field">
-          <label htmlFor="order">Office order reference</label>
-          <input id="order" value={orderReference} placeholder="AC/ORD/2026/17"
-            onChange={(e) => setOrderReference(e.target.value)} />
-        </div>
+      <div className="field">
+        <label htmlFor="officer">Officer</label>
+        <select id="officer" value={toUserId} onChange={(e) => setToUserId(e.target.value)}>
+          <option value="">Choose an approver…</option>
+          {users.map((u) => <option key={u.id} value={u.id}>{u.full_name} ({u.staff_code})</option>)}
+        </select>
+        <p className="hint">Only officers holding the approver role are listed. You cannot pick yourself.</p>
       </div>
 
       <div className="field">
@@ -233,7 +296,7 @@ function IssueForm({ users, departments, onDone }: {
         <input id="remarks" value={remarks} onChange={(e) => setRemarks(e.target.value)} />
       </div>
 
-      <button className="primary" disabled={busy || !toUserId || orderReference.trim().length < 3}
+      <button className="primary" disabled={busy || !toUserId}
         onClick={() => void submit()}>
         {busy ? 'Issuing…' : 'Issue authority'}
       </button>

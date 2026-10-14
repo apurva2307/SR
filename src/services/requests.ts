@@ -179,7 +179,7 @@ export async function decide(
     await appendEvent(db, {
       eventType: 'GRANT_CREATED', actorId: args.officerId, grantId,
       serviceRecordId: item.service_record_id, authorityId: authority.id,
-      detail: { orderReference: authority.orderReference, releasedTo: req.requester_id },
+      detail: { releasedTo: req.requester_id },
     });
     out.push({ itemId: d.itemId, action: 'APPROVE', grantId });
   }

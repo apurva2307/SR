@@ -96,8 +96,8 @@ export async function issueAuthority(
 ): Promise<string> {
   const { rows } = await w.db.query<{ id: string }>(
     `INSERT INTO approval_authorities
-       (user_id, issued_by, order_reference, effective_from, effective_to, scope_dept_ids, status)
-     VALUES ($1,$2,'AC/ORD/2026/17', now() - $3::interval, now() + $4::interval, $5, $6)
+       (user_id, issued_by, effective_from, effective_to, scope_dept_ids, status)
+     VALUES ($1,$2, now() - $3::interval, now() + $4::interval, $5, $6)
      RETURNING id`,
     [
       opts.to,
