@@ -34,6 +34,28 @@ test('PPO punctuation and a PPO label are both tolerated', () => {
   assert.equal(ok(`PPO-${PPO}_Ram Kumar Sharma.pdf`).ppoNormalized, PPO);
 });
 
+test('an older alphanumeric PPO keeps its letters in the PPO, not the name', () => {
+  for (const f of [
+    '0383- PSB-2732 BHAGWAT PRASAD.pdf',
+    '0383-PSB-2732 BHAGWAT PRASAD-compressed.pdf',
+    '0383 PSB 2732_BHAGWAT PRASAD.pdf',
+  ]) {
+    const r = ok(f);
+    assert.equal(r.pattern, 'PPO_ALNUM_LEADING', f);
+    assert.equal(r.ppoNormalized, '03832732', f);
+    assert.match(r.ppoRaw, /PSB/, f);
+    assert.equal(r.nameNormalized, 'BHAGWAT PRASAD', f);
+  }
+  const badloo = ok('0389-PSB- 8292-BADLOO.pdf');
+  assert.equal(badloo.ppoNormalized, '03898292');
+  assert.equal(badloo.nameNormalized, 'BADLOO');
+  const satyeshwari = ok('0389PSB -8274_SMT.SATYESHWARARI DEVI.pdf');
+  assert.equal(satyeshwari.ppoNormalized, '03898274');
+  assert.equal(satyeshwari.nameNormalized, 'SATYESHWARARI DEVI');
+  // A name straight after a digits-only PPO is not mistaken for a code.
+  assert.equal(ok('0196030503 - NANHOO-compressed.pdf').pattern, 'PPO_LEADING');
+});
+
 test('the extension is matched case-insensitively', () => {
   assert.equal(ok(`${PPO}_Ram Kumar Sharma.PDF`).ppoNormalized, PPO);
   assert.equal(ok(`${PPO}_Ram Kumar Sharma.Pdf`).ppoNormalized, PPO);

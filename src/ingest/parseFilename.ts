@@ -23,7 +23,7 @@ export type ParseFailure =
   | 'PPO_OUT_OF_RANGE'
   | 'NO_NAME';
 
-export type PatternName = 'PPO_LEADING' | 'PPO_BRACKETED' | 'PPO_TRAILING';
+export type PatternName = 'PPO_ALNUM_LEADING' | 'PPO_LEADING' | 'PPO_BRACKETED' | 'PPO_TRAILING';
 
 export interface ParsedRecord {
   ok: true;
@@ -61,10 +61,17 @@ const NOISE_SUFFIX =
   /[\s._-]+(?:s\.?r\.?|service[\s._-]*record|copy|scan|final|new|old|compressed)\s*$/iu;
 
 const PPO_RUN = String.raw`\d[\d\s\-\/]*\d|\d`;
+// Older PPOs carry a short bank/office code between two digit groups:
+// "0383-PSB-2732". Letters are only allowed when digits follow them, so a
+// plain "0196030503 - NANHOO" never has its name swallowed into the PPO.
+const PPO_ALNUM_RUN = String.raw`\d+[\s\-\/]*\p{L}{2,4}[\s\-\/]*\d+`;
 const LABEL = String.raw`(?:ppo[\s._:-]*)?`;
 const SEP = String.raw`[\s._\-]+`;
 
 const PATTERNS: ReadonlyArray<{ name: PatternName; re: RegExp }> = [
+  // 0383- PSB-2732 BHAGWAT PRASAD — tried first, or PPO_LEADING takes "0383"
+  // alone and quarantines it as too short.
+  { name: 'PPO_ALNUM_LEADING', re: new RegExp(String.raw`^${LABEL}(?<ppo>${PPO_ALNUM_RUN})${SEP}(?<name>.+)$`, 'iu') },
   // 410221100347_RAM KUMAR SHARMA   |   PPO 4102-2110-0347 - Ram Sharma
   { name: 'PPO_LEADING', re: new RegExp(String.raw`^${LABEL}(?<ppo>${PPO_RUN})${SEP}(?<name>.+)$`, 'iu') },
   // Ram Kumar Sharma (410221100347)   |   Ram Sharma [PPO 410221100347]
