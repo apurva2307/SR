@@ -8,6 +8,7 @@ import type { Queryable } from '../../domain/types.ts';
 import { appendEvent } from '../../audit/events.ts';
 import { notify } from '../notifications.ts';
 import { resolveInsideRoots } from './paths.ts';
+import { config } from '../../config.ts';
 
 export type IntegrityFinding =
   | { recordId: string; kind: 'MISSING'; detail: string }
@@ -60,6 +61,57 @@ export async function verifySlice(
         detail: { kind: f.kind, detail: f.detail },
       });
     }
+    const { rows: custodians } = await db.query<{ user_id: string }>(
+      `SELECT user_id FROM user_roles WHERE role_id = 'CUSTODIAN'`,
+    );
+    for (const c of custodians) {
+      await notify(db, c.user_id, 'INTEGRITY_ALERT', { count: findings.length });
+    }
+  }
+  return { checked: rows.length, findings };
+}
+
+/**
+ * The same check over added pages. These matter more, not less: the additions
+ * folder holds the only copy of each upload.
+ */
+export async function verifyAdditionsSlice(
+  db: Queryable, opts: { cycleDays?: number } = {},
+): Promise<{ checked: number; findings: IntegrityFinding[] }> {
+  const cycleDays = opts.cycleDays ?? 30;
+  const { rows: counts } = await db.query<{ n: string }>(
+    `SELECT count(*) AS n FROM record_additions WHERE status = 'ACTIVE'`,
+  );
+  const slice = Math.max(1, Math.ceil(Number(counts[0]!.n) / cycleDays));
+
+  const { rows } = await db.query<{ id: string; service_record_id: string; file_path: string; sha256: string; seq: number }>(
+    `SELECT id, service_record_id, file_path, sha256, seq FROM record_additions
+      WHERE status = 'ACTIVE' ORDER BY last_verified_at NULLS FIRST LIMIT $1`, [slice],
+  );
+
+  const findings: IntegrityFinding[] = [];
+  for (const a of rows) {
+    try {
+      const real = await resolveInsideRoots(a.file_path, [config.additionsRoot]);
+      const sha = createHash('sha256').update(await readFile(real)).digest('hex');
+      if (sha !== a.sha256) {
+        findings.push({ recordId: a.service_record_id, kind: 'CHECKSUM_CHANGED',
+          detail: `addition ${a.seq}: ${a.sha256} -> ${sha}` });
+      }
+    } catch (err) {
+      findings.push({ recordId: a.service_record_id, kind: 'MISSING',
+        detail: `addition ${a.seq}: ${(err as Error).message}` });
+    }
+    await db.query('UPDATE record_additions SET last_verified_at = now() WHERE id = $1', [a.id]);
+  }
+
+  for (const f of findings) {
+    await appendEvent(db, {
+      eventType: 'INTEGRITY_ALERT', outcome: 'DENY', serviceRecordId: f.recordId,
+      detail: { kind: f.kind, detail: f.detail, addition: true },
+    });
+  }
+  if (findings.length > 0) {
     const { rows: custodians } = await db.query<{ user_id: string }>(
       `SELECT user_id FROM user_roles WHERE role_id = 'CUSTODIAN'`,
     );

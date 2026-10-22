@@ -3,13 +3,17 @@ import { NavLink } from 'react-router-dom';
 import { useAuth } from '../auth';
 import { useLoad } from '../hooks';
 import { ThemeSwitch } from '../theme';
+import { Brand } from './Logo';
 
 interface Notification { id: string; kind: string; read_at: string | null }
 
 export function Shell({ children }: { children: ReactNode }) {
-  const { principal, signOut, can, isAccounts } = useAuth();
+  const { principal, signOut, can, isAccounts, idleWarning, stayActive } = useAuth();
   const { data } = useLoad<{ notifications: Notification[] }>('/notifications?unread=true');
   const unread = data?.notifications.length ?? 0;
+  const corrections = useLoad<{ corrections: unknown[] }>(
+    can('CONTROLLING_OFFICER') ? '/corrections/pending' : null);
+  const waitingCorrections = corrections.data?.corrections.length ?? 0;
 
   const link = (to: string, label: string, badge?: number) => (
     <NavLink to={to} className={({ isActive }) => `navlink${isActive ? ' active' : ''}`}>
@@ -20,11 +24,14 @@ export function Shell({ children }: { children: ReactNode }) {
 
   return (
     <div className="shell">
-      <nav className="sidebar">
-        <div className="brand">
-          <strong>Service Records</strong>
-          <span>Accounts Department</span>
+      {idleWarning != null && (
+        <div className="idle-warning" role="alertdialog" aria-live="assertive">
+          <span>No activity — you will be signed out in <strong>{idleWarning}s</strong>.</span>
+          <button className="small" onClick={stayActive}>Stay signed in</button>
         </div>
+      )}
+      <nav className="sidebar">
+        <Brand sub="Accounts Department" />
 
         {link('/search', 'Search')}
         {link('/requests', 'My requests')}
@@ -38,11 +45,13 @@ export function Shell({ children }: { children: ReactNode }) {
         {can('CONTROLLING_OFFICER', 'AUDITOR') && <>
           <div className="navgroup">Authority</div>
           {link('/authorities', 'Authority register')}
+          {link('/corrections', 'PPO corrections', can('CONTROLLING_OFFICER') ? waitingCorrections || undefined : undefined)}
         </>}
 
         {can('CUSTODIAN') && <>
           <div className="navgroup">Custody</div>
           {link('/quarantine', 'Quarantine')}
+          {!can('CONTROLLING_OFFICER', 'AUDITOR') && link('/corrections', 'PPO corrections')}
         </>}
 
         {can('AUDITOR', 'ADMIN') && <>

@@ -9,6 +9,8 @@ import { csrf } from './middleware/csrf.ts';
 import { errorHandler } from './middleware/errors.ts';
 import { authRoutes } from './routes/auth.ts';
 import { recordRoutes } from './routes/records.ts';
+import { additionRoutes } from './routes/additions.ts';
+import { correctionRoutes, recordCorrectionRoutes } from './routes/corrections.ts';
 import { requestRoutes } from './routes/requests.ts';
 import { grantRoutes } from './routes/grants.ts';
 import { authorityRoutes } from './routes/authorities.ts';
@@ -46,11 +48,14 @@ export function createApp(): express.Express {
 
   app.get('/api/health', (_req, res) => { res.json({ ok: true }); });
   app.use('/api/auth', authRoutes);
+  app.use('/api/records/:id/additions', additionRoutes);
+  app.use('/api/records/:id/corrections', recordCorrectionRoutes);
   app.use('/api/records', recordRoutes);
   app.use('/api/requests', requestRoutes);
   app.use('/api/grants', grantRoutes);
   app.use('/api/authorities', authorityRoutes);
   app.use('/api/custody', custodyRoutes);
+  app.use('/api/corrections', correctionRoutes);
   app.use('/api/audit', auditRoutes);
   app.use('/api/admin', adminRoutes);
   app.use('/api/notifications', notificationRoutes);

@@ -49,6 +49,7 @@ services:
     environment:
       DATABASE_URL: postgres://srdfm:${PG_PASSWORD}@db:5432/service_records
       SR_SOURCE_ROOTS: /srv/service-records
+      SR_ADDITIONS_ROOT: /srv/sr-additions
       COOKIE_SECURE: "false" # development only; TLS terminates in front in production
       PORT: "3000"
     ports: ["3002:3000"]
@@ -56,6 +57,9 @@ services:
     volumes:
       # Read-only. The application reads records and never writes them (§4.2).
       - ./service-records:/srv/service-records:ro
+      # Writable, and the only copy of every page added after indexing.
+      # Back this folder up with the database.
+      - ./sr-additions:/srv/sr-additions
 
   # The first real account, and later ones if you prefer the shell to the admin
   # console. Not part of `up`; run it explicitly and pass what it needs:

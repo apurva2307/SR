@@ -7,6 +7,7 @@ import {
   login, redeemResetCode, revokeSession,
 } from '../../services/auth.ts';
 import { appendEvent } from '../../audit/events.ts';
+import { idleMinutes } from '../../services/settings.ts';
 import { SESSION_COOKIE, requireAuth } from '../middleware/auth.ts';
 import { issueCsrf } from '../middleware/csrf.ts';
 import { hit } from '../middleware/rateLimit.ts';
@@ -81,7 +82,7 @@ authRoutes.post('/logout', wrap(async (req, res) => {
   res.json({ ok: true });
 }));
 
-authRoutes.get('/me', (req, res) => {
+authRoutes.get('/me', wrap(async (req, res) => {
   // Issued before the auth check, and to anonymous callers too: the login POST
   // is itself state-changing, so without a token here nobody could ever sign
   // in. Handing the token to an anonymous visitor is safe — double-submit
@@ -91,8 +92,13 @@ authRoutes.get('/me', (req, res) => {
     res.status(401).json({ error: 'NOT_AUTHENTICATED', message: 'Sign in to continue.' });
     return;
   }
-  res.json({ principal: req.principal });
-});
+  // The browser runs its own inactivity timer from this, so a user who walks
+  // away is signed out on screen even if no request is ever made again.
+  res.json({
+    principal: req.principal,
+    idleMinutes: await idleMinutes(getPool(), config.session.idleMinutes),
+  });
+}));
 
 const passwordBody = z.object({
   current: z.string().min(1),

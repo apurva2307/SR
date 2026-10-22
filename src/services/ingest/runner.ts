@@ -10,6 +10,7 @@ import { appendEvent } from '../../audit/events.ts';
 import { countPages } from '../render/pageRenderer.ts';
 import { config } from '../../config.ts';
 import { notify } from '../notifications.ts';
+import { carryForward } from '../additions.ts';
 
 export interface IngestSummary {
   runId: Uuid;
@@ -164,7 +165,11 @@ export type Resolution = 'INDEXED' | 'SUPERSEDED' | 'LINKED' | 'IGNORED';
 /** Every resolution is an audit event naming who decided (§8.1). */
 export async function resolveQuarantine(
   db: Queryable,
-  args: { id: Uuid; custodianId: Uuid; resolution: Resolution; ppo?: string; name?: string },
+  args: {
+    id: Uuid; custodianId: Uuid; resolution: Resolution; ppo?: string; name?: string;
+    /** Superseding only: move the old record's added pages onto the new one. */
+    carryAdditions?: boolean;
+  },
 ): Promise<boolean> {
   const { rows } = await db.query<{
     raw_path: string; raw_filename: string; sha256: string | null;
@@ -213,6 +218,9 @@ export async function resolveQuarantine(
           eventType: 'RECORD_SUPERSEDED', actorId: args.custodianId,
           serviceRecordId: priorId, detail: { replacedBy: ins[0]!.id },
         });
+        if (args.carryAdditions) {
+          await carryForward(db, { fromRecordId: priorId, toRecordId: ins[0]!.id, custodianId: args.custodianId });
+        }
       }
     }
     await appendEvent(db, {

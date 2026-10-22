@@ -2,10 +2,11 @@ import { useState } from 'react';
 import { useAuth } from '../auth';
 import { api, ApiError } from '../api';
 import { Banner } from '../components/bits';
+import { Brand } from '../components/Logo';
 import { ThemeSwitch } from '../theme';
 
 export function LoginPage() {
-  const { signIn } = useAuth();
+  const { signIn, idleSignedOut } = useAuth();
   const [resetting, setResetting] = useState(false);
   const [staffCode, setStaffCode] = useState('');
   const [password, setPassword] = useState('');
@@ -37,11 +38,11 @@ export function LoginPage() {
   return (
     <div className="login-wrap">
       <form className="login card" onSubmit={submit}>
-        <div className="brand">
-          <strong>Service Record Custody</strong>
-          <span>Accounts Department</span>
-        </div>
+        <Brand stacked sub="Accounts Department · Reading room" />
 
+        {!error && idleSignedOut && (
+          <Banner kind="warn">You were signed out after a period of inactivity. Sign in again to continue.</Banner>
+        )}
         {error && <Banner>{error}</Banner>}
 
         <div className="field">
@@ -118,10 +119,7 @@ function ResetForm({ onBack }: { onBack: () => void }) {
   return (
     <div className="login-wrap">
       <form className="login card" onSubmit={submit}>
-        <div className="brand">
-          <strong>Reset your password</strong>
-          <span>Accounts Department</span>
-        </div>
+        <Brand stacked sub="Reset your password" />
 
         {error && <Banner>{error}</Banner>}
         {done && (

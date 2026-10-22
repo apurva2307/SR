@@ -1,5 +1,5 @@
 {
-  "name": "service-records",
+  "name": "sevalekh",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -22,28 +22,29 @@
     "web:build": "vite build --config web/vite.config.ts"
   },
   "dependencies": {
-    "pg": "^8.13.1",
     "@napi-rs/canvas": "^0.1.65",
     "@node-rs/argon2": "^2.0.2",
     "cookie-parser": "^1.4.7",
     "express": "^5.0.1",
     "mupdf": "^1.0.0",
-    "zod": "^3.24.1",
-    "qrcode": "^1.5.4"
+    "pg": "^8.13.1",
+    "qrcode": "^1.5.4",
+    "zod": "^3.24.1"
   },
   "devDependencies": {
-    "@types/node": "^22.10.2",
-    "@types/pg": "^8.11.10",
-    "typescript": "^5.7.2",
+    "@fontsource/hind": "^5.2.5",
     "@types/cookie-parser": "^1.4.8",
     "@types/express": "^5.0.0",
+    "@types/node": "^22.10.2",
+    "@types/pg": "^8.11.10",
+    "@types/qrcode": "^1.5.5",
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
     "@vitejs/plugin-react": "^4.3.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.1.1",
-    "vite": "^6.0.7",
-    "@types/qrcode": "^1.5.5"
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7"
   }
 }

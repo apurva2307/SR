@@ -43,6 +43,7 @@ export const DEFAULT_SETTINGS: Record<string, unknown> = {
   'ppo.max_length': 14,
   'search.min_query_length': 3,
   'search.similarity_floor': 0.35,
+  'session.idle_minutes': 15,
 };
 
 /**
@@ -169,7 +170,19 @@ export const SETTING_SPECS: SettingSpec[] = [
     description:
       'How close a name has to be to count as a match. Lower finds more and includes more noise; higher is stricter and starts missing genuine spelling variants. 0.35 is a reasonable default for transliterated names.',
   },
+  {
+    key: 'session.idle_minutes', label: 'Sign out after inactivity', kind: 'integer', unit: 'minutes',
+    min: 1, max: 480,
+    description:
+      'How long a signed-in user may leave the application untouched before they are signed out and must sign in again. Applies to every user, takes effect within a minute of saving, and is enforced by the server as well as the browser. Sessions still end after the absolute session limit regardless.',
+  },
 ];
+
+/** The inactivity limit, falling back to the environment default. */
+export async function idleMinutes(db: Queryable, fallback: number): Promise<number> {
+  const n = Number(await getSetting<number>(db, 'session.idle_minutes', fallback));
+  return Number.isInteger(n) && n >= 1 ? n : fallback;
+}
 
 export const SPEC_BY_KEY = new Map(SETTING_SPECS.map((s) => [s.key, s]));
 

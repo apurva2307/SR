@@ -74,7 +74,7 @@ async function main() {
     console.log(`${root} is read-only (as it should be) — leaving its contents alone.`);
   }
 
-  await db.query(`TRUNCATE access_events, notifications, view_sessions, access_grants,
+  await db.query(`TRUNCATE record_additions, addition_uploads, access_events, notifications, view_sessions, access_grants,
     access_request_items, access_requests, approval_authorities, record_aliases,
     quarantine_items, ingestion_runs, service_records, sessions, password_reset_codes,
     user_roles, users, departments RESTART IDENTITY CASCADE`);

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="SevaLekh">
+  <rect x="15" y="15" width="34" height="40" fill="#fff"/>
+  <rect x="8" y="9" width="48" height="6" rx="1.5" fill="#0e5a63"/>
+  <path d="M17 15V53H35M47 15V35" fill="none" stroke="#0e5a63" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M23 24H41M23 31H41M23 38H32" fill="none" stroke="#0e5a63" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="46" cy="47" r="11" fill="#c8452c" stroke="#fff" stroke-width="3"/>
+  <circle cx="46" cy="47" r="6.4" fill="none" stroke="#fff" stroke-width="1.6"/>
+  <circle cx="46" cy="47" r="1.9" fill="#fff"/>
+</svg>

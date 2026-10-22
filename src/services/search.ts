@@ -30,14 +30,23 @@ const FLOOR = 0.35;
 
 const SQL = `
 WITH scored AS (
-  SELECT r.id, r.ppo_number, r.employee_name, r.page_count, r.indexed_at, r.status,
+  SELECT r.id, r.ppo_number, r.employee_name,
+         r.page_count + r.added_page_count AS page_count, r.indexed_at, r.status,
          GREATEST(
            CASE WHEN $2::text <> '' AND r.ppo_normalized = $2 THEN 1.0
                 WHEN $2::text <> '' AND r.ppo_normalized LIKE $2 || '%' THEN 0.9
                 ELSE 0 END,
            CASE WHEN $3::text <> ''
                 THEN GREATEST(similarity(r.name_normalized, $3), similarity(r.name_sorted, $4))
-                ELSE 0 END
+                ELSE 0 END,
+           -- A corrected record still answers to the value it replaced: the
+           -- requesting department may hold only the old PPO or spelling.
+           COALESCE((
+             SELECT max(CASE
+                      WHEN a.alias_kind = 'PPO' AND $2::text <> '' AND a.value_normalized = $2 THEN 0.95
+                      WHEN a.alias_kind = 'NAME' AND $3::text <> '' THEN similarity(a.value_normalized, $3)
+                      ELSE 0 END)
+             FROM record_aliases a WHERE a.service_record_id = r.id), 0)
          ) AS score
   FROM service_records r
   WHERE r.status = 'ACTIVE'

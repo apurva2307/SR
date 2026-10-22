@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { randomBytes, createHash } from 'node:crypto';
 import { getPool } from '../../db.ts';
 import { hashPassword } from '../../services/auth.ts';
-import { SETTING_SPECS, setSetting, validateSetting } from '../../services/settings.ts';
+import { SETTING_SPECS, idleMinutes, setSetting, validateSetting } from '../../services/settings.ts';
+import { config } from '../../config.ts';
 import { appendEvent } from '../../audit/events.ts';
 import { AuthzError } from '../../domain/errors.ts';
 import { requireAuth, requireRole } from '../middleware/auth.ts';
@@ -192,16 +193,26 @@ adminRoutes.delete('/departments/:id', requireRole('ADMIN'), wrap(async (req, re
  */
 adminRoutes.get('/users', requireRole('ADMIN', 'CONTROLLING_OFFICER'),
   wrap(async (_req, res) => {
+    // "Online" means a live session used within the inactivity limit — the same
+    // test the server applies before honouring that session.
+    const idle = await idleMinutes(getPool(), config.session.idleMinutes);
     const { rows } = await getPool().query(
       `SELECT u.id, u.staff_code, u.full_name, u.email, u.designation, u.status,
               u.totp_enabled, u.totp_required,
               u.last_login_at, u.must_change_password, d.name AS department_name, d.kind,
-              coalesce(array_agg(ur.role_id) FILTER (WHERE ur.role_id IS NOT NULL), '{}') AS roles
+              coalesce(array_agg(ur.role_id) FILTER (WHERE ur.role_id IS NOT NULL), '{}') AS roles,
+              s.last_seen_at,
+              coalesce(s.last_seen_at > now() - ($1 || ' minutes')::interval, false) AS online
        FROM users u
        JOIN departments d ON d.id = u.department_id
        LEFT JOIN user_roles ur ON ur.user_id = u.id
-       GROUP BY u.id, d.name, d.kind
+       LEFT JOIN LATERAL (
+         SELECT max(last_seen_at) AS last_seen_at FROM sessions
+          WHERE user_id = u.id AND revoked_at IS NULL AND expires_at > now()
+       ) s ON true
+       GROUP BY u.id, d.name, d.kind, s.last_seen_at
        ORDER BY d.name, u.full_name`,
+      [String(idle)],
     );
     res.json({ users: rows });
   }));

@@ -20,7 +20,7 @@ SELECT q.id, q.request_no, q.status, q.purpose, q.file_reference,
        d.name AS requester_dept,
        json_agg(json_build_object(
          'id', i.id, 'recordId', r.id, 'ppoNumber', r.ppo_number,
-         'employeeName', r.employee_name, 'pageCount', r.page_count,
+         'employeeName', r.employee_name, 'pageCount', r.page_count + r.added_page_count,
          'status', i.item_status, 'remarks', i.decision_remarks,
          'decidedAt', i.decided_at
        ) ORDER BY r.employee_name) AS items

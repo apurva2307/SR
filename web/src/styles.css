@@ -7,14 +7,16 @@
    so a token can never exist only inside a media query — that is the bug that
    renders one theme's text on the other theme's background. */
 :root {
-  --ground: #f4f6fb; --surface: #fff; --surface-2: #ebeef7; --sunk: #e3e7f3;
-  --ink: #141828; --ink-2: #3b4359; --muted: #616b84;
-  --line: #d9deec; --line-strong: #bfc7dd;
-  --accent: #28396f; --accent-soft: #e7ecfa; --accent-ink: #1d2b56;
-  --ok: #0e6b4d; --ok-soft: #dff0e8;
+  --ground: #f2f6f6; --surface: #fff; --surface-2: #e8efef; --sunk: #dfe8e8;
+  --ink: #0f1e20; --ink-2: #33494b; --muted: #5b7072;
+  --line: #d3dfdf; --line-strong: #b6c7c8;
+  --accent: #0e5a63; --accent-soft: #e0f0f0; --accent-ink: #0a454c; --on-accent: #fff;
+  --seal: #c8452c;
+  --ok: #2d6a1f; --ok-soft: #e3efd9;
   --warn: #8a5807; --warn-soft: #f6edda;
   --stop: #9a2c2c; --stop-soft: #f6e4e4;
-  --shadow: rgba(20, 24, 40, 0.16);
+  --shadow: rgba(15, 30, 32, 0.16);
+  --display: "Hind", "Nirmala UI", "Mangal", -apple-system, "Segoe UI", sans-serif;
   --sans: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --radius: 6px;
@@ -23,11 +25,12 @@
 /* System dark, guarded so an explicit light choice still wins over a dark OS. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-  --ground: #0c0f17; --surface: #141826; --surface-2: #1a2030; --sunk: #10141f;
-  --ink: #e2e6f2; --ink-2: #b4bcd0; --muted: #8b94ab;
-  --line: #232937; --line-strong: #343c51;
-  --accent: #97a9ee; --accent-soft: #1a2134; --accent-ink: #b9c6f5;
-  --ok: #54c296; --ok-soft: #122420;
+  --ground: #0a1213; --surface: #111b1c; --surface-2: #172324; --sunk: #0d1617;
+  --ink: #e0ebeb; --ink-2: #b0c4c5; --muted: #87a0a1;
+  --line: #1f2e30; --line-strong: #2f4244;
+  --accent: #6cc3c9; --accent-soft: #132a2c; --accent-ink: #9fdade; --on-accent: #06191b;
+  --seal: #f07a5c;
+  --ok: #7cc46a; --ok-soft: #16231a;
   --warn: #d9a94d; --warn-soft: #241f12;
   --stop: #e58787; --stop-soft: #251617;
   --shadow: rgba(0, 0, 0, 0.5);
@@ -36,11 +39,12 @@
 
 /* Explicit dark, so the toggle wins in the other direction too. */
 :root[data-theme="dark"] {
-  --ground: #0c0f17; --surface: #141826; --surface-2: #1a2030; --sunk: #10141f;
-  --ink: #e2e6f2; --ink-2: #b4bcd0; --muted: #8b94ab;
-  --line: #232937; --line-strong: #343c51;
-  --accent: #97a9ee; --accent-soft: #1a2134; --accent-ink: #b9c6f5;
-  --ok: #54c296; --ok-soft: #122420;
+  --ground: #0a1213; --surface: #111b1c; --surface-2: #172324; --sunk: #0d1617;
+  --ink: #e0ebeb; --ink-2: #b0c4c5; --muted: #87a0a1;
+  --line: #1f2e30; --line-strong: #2f4244;
+  --accent: #6cc3c9; --accent-soft: #132a2c; --accent-ink: #9fdade; --on-accent: #06191b;
+  --seal: #f07a5c;
+  --ok: #7cc46a; --ok-soft: #16231a;
   --warn: #d9a94d; --warn-soft: #241f12;
   --stop: #e58787; --stop-soft: #251617;
   --shadow: rgba(0, 0, 0, 0.5);
@@ -66,12 +70,33 @@ h3 { font-size: 0.95rem; font-weight: 600; }
   display: flex; flex-direction: column; gap: 4px; padding: 20px 14px;
   position: sticky; top: 0; height: 100vh; overflow-y: auto;
 }
-.brand { padding: 0 8px 16px; border-bottom: 1px solid var(--line); margin-bottom: 12px; }
-.brand strong { display: block; font-size: 0.95rem; letter-spacing: -0.01em; }
-.brand span {
-  display: block; font-family: var(--mono); font-size: 0.62rem;
-  letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin-top: 4px;
+.brand {
+  display: flex; align-items: center; gap: 10px;
+  padding: 0 8px 16px; border-bottom: 1px solid var(--line); margin-bottom: 12px;
 }
+.brand-text { display: flex; flex-direction: column; min-width: 0; }
+.brand strong { display: block; font-size: 0.95rem; letter-spacing: -0.01em; }
+.brand .wordmark {
+  font-family: var(--display); font-weight: 600; font-size: 1.35rem;
+  line-height: 1; letter-spacing: -0.015em; color: var(--ink);
+}
+.brand .wordmark span { color: var(--accent); }
+.wordmark-deva { font-family: var(--display); font-weight: 500; font-size: 0.95rem; color: var(--muted); margin-top: 4px; }
+.brand .brand-sub {
+  display: block; font-family: var(--mono); font-size: 0.62rem;
+  letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin-top: 5px;
+}
+.brand.stacked { flex-direction: column; text-align: center; gap: 12px; }
+.brand.stacked .brand-text { align-items: center; }
+.brand.stacked .wordmark { font-size: 2rem; }
+
+/* The mark takes the accent; the seal keeps its own colour and is used nowhere else. */
+.mark { flex: none; display: block; }
+.mark-ink { fill: var(--accent); }
+.mark-paper { fill: var(--surface); }
+.mark-line { fill: none; stroke: var(--accent); }
+.mark-seal { fill: var(--seal); stroke: var(--surface); }
+.mark-ring { fill: none; stroke: var(--surface); }
 .navlink {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
   padding: 7px 10px; border-radius: var(--radius); color: var(--ink-2);
@@ -100,7 +125,7 @@ button, .btn {
 }
 button:hover:not(:disabled), .btn:hover { background: var(--surface-2); }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
-button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 /* Restates the background deliberately: the generic `button:hover` rule above
    is more specific than `button.primary`, so without this a primary button
    loses its accent on hover and its white label disappears against the grey. */
@@ -164,11 +189,16 @@ tbody tr.selectable:hover { background: var(--surface-2); }
 .empty { padding: 44px 20px; text-align: center; color: var(--muted); font-size: 0.9rem; }
 .empty strong { display: block; color: var(--ink); font-weight: 600; margin-bottom: 5px; font-size: 0.95rem; }
 
+/* ---------- corrections ---------- */
+.correction-form {
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 14px 16px; margin-bottom: 14px;
+}
+
 /* ---------- login ---------- */
 .login-wrap { display: grid; place-items: center; min-height: 100vh; padding: 24px; }
 .login { width: 100%; max-width: 372px; }
 .login .brand { border: none; text-align: center; margin-bottom: 22px; padding-bottom: 0; }
-.login .brand strong { font-size: 1.2rem; }
 
 /* ---------- viewer ---------- */
 .viewer { display: flex; flex-direction: column; gap: 12px; }
@@ -184,8 +214,46 @@ tbody tr.selectable:hover { background: var(--surface-2); }
 .page-frame img {
   max-width: 100%; height: auto; background: #fff;
   box-shadow: 0 1px 3px var(--shadow), 0 8px 24px var(--shadow);
-  /* Deterrence only, and labelled as such in the design (§11). */
   -webkit-user-drag: none; user-select: none;
+}
+/* Continuous scroll: every page in one column, fetched as it comes into view. */
+.page-stage { position: relative; }
+.page-scroll {
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 8px;
+  padding: 20px; height: calc(100vh - 230px); min-height: 420px;
+  overflow-y: auto; overscroll-behavior: contain;
+  display: flex; flex-direction: column; align-items: center; gap: 18px;
+  user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+}
+.page-slot { width: 100%; max-width: 980px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.page-slot img, .page-placeholder {
+  width: 100%; background: #fff;
+  box-shadow: 0 1px 3px var(--shadow), 0 8px 24px var(--shadow);
+}
+.page-slot img {
+  height: auto; display: block;
+  /* Deterrence only, and labelled as such in the design (§11). */
+  -webkit-user-drag: none; user-select: none; pointer-events: none;
+}
+.page-placeholder { display: grid; place-items: center; color: #777; }
+.page-label { font-size: 0.72rem; color: var(--muted); }
+/* Blanked whenever the window is not the one in use, or a capture key is seen. */
+.page-scroll.shielded { overflow: hidden; }
+.page-scroll.shielded .page-slot { filter: blur(28px) brightness(0.6); }
+.capture-shield {
+  position: absolute; inset: 0; z-index: 5; cursor: pointer; border-radius: 8px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  padding: 24px; text-align: center; background: color-mix(in srgb, var(--sunk) 85%, transparent);
+}
+.capture-shield strong { font-size: 1.1rem; }
+body.no-select { user-select: none; -webkit-user-select: none; }
+body.no-select input, body.no-select textarea { user-select: text; -webkit-user-select: text; }
+
+.idle-warning {
+  position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 100;
+  display: flex; align-items: center; gap: 14px; max-width: calc(100vw - 32px);
+  background: var(--warn-soft); color: var(--warn); border: 1px solid var(--warn);
+  border-radius: 8px; padding: 10px 16px; box-shadow: 0 4px 18px var(--shadow);
 }
 .countdown { font-family: var(--mono); font-size: 0.78rem; color: var(--muted); }
 
@@ -199,15 +267,18 @@ tbody tr.selectable:hover { background: var(--surface-2); }
 
 .basket-bar {
   position: sticky; bottom: 0; margin-top: 16px; display: flex; align-items: center; gap: 14px;
-  background: var(--accent); color: #fff; border-radius: 8px; padding: 11px 16px;
+  background: var(--accent); color: var(--on-accent); border-radius: 8px; padding: 11px 16px;
   box-shadow: 0 4px 18px var(--shadow);
 }
-.basket-bar button { background: rgba(255, 255, 255, 0.14); border-color: rgba(255, 255, 255, 0.4); color: #fff; }
-.basket-bar button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.24); }
+.basket-bar button {
+  background: color-mix(in srgb, var(--on-accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--on-accent) 40%, transparent); color: var(--on-accent);
+}
+.basket-bar button:hover:not(:disabled) { background: color-mix(in srgb, var(--on-accent) 24%, transparent); }
 .basket-bar .spacer { flex: 1; }
 
 .duration-row { display: flex; gap: 8px; flex-wrap: wrap; }
-.duration-row button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.duration-row button.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 
 .detail-list { display: grid; grid-template-columns: max-content 1fr; gap: 6px 18px; font-size: 0.86rem; }
 .detail-list dt { color: var(--muted); }

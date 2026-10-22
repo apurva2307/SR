@@ -4,7 +4,8 @@
 import type { Queryable } from './domain/types.ts';
 import { sweepExpired } from './services/grants.ts';
 import { warnExpiring } from './services/authorities.ts';
-import { verifySlice } from './services/ingest/integrity.ts';
+import { verifyAdditionsSlice, verifySlice } from './services/ingest/integrity.ts';
+import { sweepStaged } from './services/additions.ts';
 import { runIngestion } from './services/ingest/runner.ts';
 import { getSetting } from './services/settings.ts';
 
@@ -22,6 +23,8 @@ export function startScheduler(db: Queryable): () => void {
       await warnExpiring(db, await getSetting(db, 'authority.expiry_warn_days', [14, 3]));
     }), 12 * HOUR),
     setInterval(() => void safely('integrity', () => verifySlice(db)), 24 * HOUR),
+    setInterval(() => void safely('integrity-additions', () => verifyAdditionsSlice(db)), 24 * HOUR),
+    setInterval(() => void safely('staged-uploads', () => sweepStaged(db)), HOUR),
   ];
   for (const t of timers) t.unref();
   return () => { for (const t of timers) clearInterval(t); };

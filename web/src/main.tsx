@@ -13,12 +13,15 @@ import { InboxPage } from './pages/Inbox';
 import { RegisterPage } from './pages/Register';
 import { AuthoritiesPage } from './pages/Authorities';
 import { QuarantinePage } from './pages/Quarantine';
+import { CorrectionsPage } from './pages/Corrections';
 import { AuditPage } from './pages/Audit';
 import { AdminPage } from './pages/Admin';
 import { PasswordPage } from './pages/Password';
 import { ProfilePage } from './pages/Profile';
 import { TotpPage } from './pages/Totp';
 import { Spinner } from './components/bits';
+import '@fontsource/hind/500.css';
+import '@fontsource/hind/600.css';
 import './styles.css';
 
 /**
@@ -85,6 +88,8 @@ function Gate() {
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/authorities"
           element={<RequireRole roles={['APPROVER', 'CONTROLLING_OFFICER', 'AUDITOR']}><AuthoritiesPage /></RequireRole>} />
+        <Route path="/corrections"
+          element={<RequireRole roles={['CONTROLLING_OFFICER', 'CUSTODIAN', 'AUDITOR']}><CorrectionsPage /></RequireRole>} />
         <Route path="/quarantine"
           element={<RequireRole roles={['CUSTODIAN']}><QuarantinePage /></RequireRole>} />
         <Route path="/audit"
@@ -104,7 +109,13 @@ function Gate() {
 
 // Before the first paint, so a dark-theme user never sees a white flash.
 try {
-  const stored = localStorage.getItem('sr.theme');
+  // Carry the choice over from the key used before the rename to SevaLekh.
+  const legacy = localStorage.getItem('sr.theme');
+  if (legacy !== null) {
+    if (localStorage.getItem('sevalekh.theme') === null) localStorage.setItem('sevalekh.theme', legacy);
+    localStorage.removeItem('sr.theme');
+  }
+  const stored = localStorage.getItem('sevalekh.theme');
   if (stored === 'light' || stored === 'dark') {
     document.documentElement.setAttribute('data-theme', stored);
   }

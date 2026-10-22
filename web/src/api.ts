@@ -43,7 +43,25 @@ export const api = {
   put: <T>(p: string, body?: unknown) =>
     request<T>(p, { method: 'PUT', ...(body === undefined ? {} : { body: JSON.stringify(body) }) }),
   del: <T>(p: string) => request<T>(p, { method: 'DELETE' }),
+  /** One file as the raw body; the server judges its type from the bytes. */
+  upload: <T>(p: string, file: File) =>
+    request<T>(p, {
+      method: 'POST', body: file,
+      headers: {
+        'Content-Type': file.type || 'application/octet-stream',
+        'X-File-Name': encodeURIComponent(file.name),
+      },
+    }),
 };
+
+/** A page map: the original first, then each live addition in order. */
+export interface PageSegment {
+  kind: 'ORIGINAL' | 'ADDITION';
+  firstPage: number; lastPage: number;
+  additionId?: string; seq?: number; description?: string;
+  documentDate?: string | null; uploadedAt?: string; uploadedByName?: string;
+}
+export interface PageLayout { total: number; segments: PageSegment[] }
 
 // ---------------------------------------------------------------------------
 export interface Principal {

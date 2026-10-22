@@ -49,6 +49,9 @@ describe('http surface', { skip: url ? false : 'DATABASE_URL not set' }, () => {
     await user('PW001', works, ['REQUESTER']);
     await user('AC002', accounts, ['APPROVER']);   // role, deliberately no authority
     await user('IT001', accounts, ['ADMIN']);
+    // Its own department, so the accounts staff-code sequence other tests
+    // count on is left alone.
+    await user('RC001', await dept('RC', 'Records Cell', 'ACCOUNTS'), ['CUSTODIAN']);
 
     recordId = (await db.query<{ id: string }>(
       `INSERT INTO service_records
@@ -181,6 +184,54 @@ describe('http surface', { skip: url ? false : 'DATABASE_URL not set' }, () => {
       assert.equal(res.status, 404, `${p} answered ${res.status}`);
       assert.notEqual(res.headers.get('content-type'), 'application/pdf');
     }
+  });
+
+  test('a custodian adds pages over HTTP: upload, check, describe, and they join the record', async () => {
+    const { mkdir } = await import('node:fs/promises');
+    const mupdf = await import('mupdf');
+    const { config } = await import('../src/config.ts');
+    await mkdir(config.additionsRoot, { recursive: true });
+
+    const doc = new mupdf.PDFDocument();
+    for (let i = 0; i < 2; i++) doc.insertPage(-1, doc.addPage([0, 0, 595, 842], 0, {}, `% http ${i}
+`));
+    const pdf = Buffer.from(doc.saveToBuffer().asUint8Array());
+
+    const s = await coldSignIn('RC001');
+    const raw = (p: string, body: Buffer) => fetch(`${base}/api${p}`, {
+      method: 'POST', body,
+      headers: {
+        'content-type': 'application/pdf', 'x-file-name': encodeURIComponent('Increment order.pdf'),
+        cookie: s.cookieHeader(), 'x-csrf-token': s.csrf(),
+      },
+    });
+
+    const staged = await raw(`/records/${recordId}/additions/stage`, pdf);
+    assert.equal(staged.status, 201);
+    const up = await staged.json() as { id: string; pageCount: number };
+    assert.equal(up.pageCount, 2);
+
+    // The custodian's check: an image, never the PDF.
+    const preview = await s.get(`/records/${recordId}/additions/staged/${up.id}/page/2`);
+    assert.equal(preview.status, 200);
+    assert.equal(preview.headers.get('content-type'), 'image/webp');
+
+    const done = await s.post(`/records/${recordId}/additions`,
+      { uploadId: up.id, description: 'Increment order 2026-27', documentDate: '2026-10-01' });
+    assert.equal(done.status, 201);
+    const added = await done.json() as { seq: number; firstPage: number; lastPage: number };
+    assert.deepEqual([added.seq, added.firstPage, added.lastPage], [1, 5, 6]);
+
+    const detail = await (await s.get(`/records/${recordId}`)).json() as { pages: { total: number } };
+    assert.equal(detail.pages.total, 6); // 4 original + 2 added
+
+    // A requester cannot upload, even with a valid session and token.
+    const r = await coldSignIn('PW001');
+    const denied = await fetch(`${base}/api/records/${recordId}/additions/stage`, {
+      method: 'POST', body: pdf,
+      headers: { 'content-type': 'application/pdf', cookie: r.cookieHeader(), 'x-csrf-token': r.csrf() },
+    });
+    assert.equal(denied.status, 403);
   });
 
   test('a malformed record id answers 404, not a 500 from the database', async () => {
@@ -790,6 +841,48 @@ describe('http surface', { skip: url ? false : 'DATABASE_URL not set' }, () => {
       });
       assert.equal(unknown.status, 400);
     });
+
+    test('the inactivity limit is an administrator setting, and the server enforces it', async () => {
+      const admin = await coldSignIn('IT001');
+      assert.equal((await admin.put('/admin/settings/session.idle_minutes', { value: 0 })).status, 400);
+      assert.equal((await admin.put('/admin/settings/session.idle_minutes', { value: 5 })).status, 200);
+
+      // The browser runs its timer from what /auth/me reports.
+      const me = await (await admin.get('/auth/me')).json() as { idleMinutes: number };
+      assert.equal(me.idleMinutes, 5);
+
+      // Administration sees who is on now and when each person last signed in.
+      const user = await coldSignIn('PW001');
+      const list = await (await admin.get('/admin/users')).json() as
+        { users: { staff_code: string; online: boolean; last_login_at: string | null; last_seen_at: string | null }[] };
+      const pw = list.users.find((u) => u.staff_code === 'PW001')!;
+      assert.equal(pw.online, true);
+      assert.ok(pw.last_login_at && pw.last_seen_at);
+
+      // Left alone past the limit, the session is refused and shows as offline.
+      await db.query(
+        `UPDATE sessions SET last_seen_at = now() - interval '6 minutes'
+          WHERE user_id = (SELECT id FROM users WHERE staff_code = 'PW001')`,
+      );
+      assert.equal((await user.get('/auth/me')).status, 401);
+      const later = await (await admin.get('/admin/users')).json() as
+        { users: { staff_code: string; online: boolean }[] };
+      assert.equal(later.users.find((u) => u.staff_code === 'PW001')!.online, false);
+
+      assert.equal((await admin.put('/admin/settings/session.idle_minutes', { value: 15 })).status, 200);
+    });
+  });
+
+  test('the viewer records attempts to capture a page, and refuses kinds it does not know', async () => {
+    const s = await coldSignIn('IT001');
+    const { rows } = await db.query<{ id: string }>(`SELECT id FROM service_records LIMIT 1`);
+    const recordId = rows[0]!.id;
+    assert.equal((await s.post(`/records/${recordId}/capture-attempt`, { kind: 'NOPE' })).status, 400);
+    assert.equal((await s.post(`/records/${recordId}/capture-attempt`, { kind: 'PRINT_SCREEN', page: 3 })).status, 200);
+    const { rows: ev } = await db.query<{ detail: { kind: string; page: number } }>(
+      `SELECT detail FROM access_events WHERE event_type = 'SCREEN_CAPTURE_ATTEMPT' ORDER BY seq DESC LIMIT 1`,
+    );
+    assert.deepEqual(ev[0]?.detail, { kind: 'PRINT_SCREEN', page: 3 });
   });
 
   test('security headers are set on every response', async () => {

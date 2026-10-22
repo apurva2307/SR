@@ -7,4 +7,5 @@ dist/
 *.log
 pgdata/
 pgdata18/
+sr-additions/
 service-records/

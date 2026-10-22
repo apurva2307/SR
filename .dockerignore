@@ -2,6 +2,7 @@
 # breaks the build context outright, and it has no business in an image.
 pgdata/
 pgdata18/
+sr-additions/
 
 .git/
 node_modules/

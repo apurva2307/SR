@@ -37,7 +37,8 @@ export async function register(db: Queryable, filter: { authorityId?: Uuid; user
 export async function myGrants(db: Queryable, userId: Uuid) {
   const { rows } = await db.query(
     `SELECT g.id, g.valid_from, g.valid_until, g.max_views, g.view_count,
-            r.id AS record_id, r.ppo_number, r.employee_name, r.page_count
+            r.id AS record_id, r.ppo_number, r.employee_name,
+            r.page_count + r.added_page_count AS page_count
      FROM access_grants g
      JOIN service_records r ON r.id = g.service_record_id
      WHERE g.user_id = $1 AND g.revoked_at IS NULL AND now() < g.valid_until

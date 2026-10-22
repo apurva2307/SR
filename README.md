@@ -1,10 +1,12 @@
-# Service Record Custody
+# SevaLekh
 
-A digital reading room for pension service records. The Accounts Department keeps
+<img src="brand/sevalekh-mark.svg" alt="SevaLekh mark" width="72" align="right">
+
+SevaLekh (सेवालेख, "service record") is a digital reading room for pension service records. The Accounts Department keeps
 custody of the PDFs; user departments search a catalogue, request a record for a
 stated period, and read it **on screen only** while that grant is live.
 
-Full design: **[Service Record Custody](https://claude.ai/code/artifact/3e6ec42c-7e20-4127-9326-1ac6a2f1321f)**.
+Full design: **[SevaLekh design document](https://claude.ai/code/artifact/3e6ec42c-7e20-4127-9326-1ac6a2f1321f)**.
 Section markers in the code (§6.1, §8.1, …) point into that document.
 
 ## The two ideas the whole system rests on
@@ -33,8 +35,8 @@ holds several.
 | ----------------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | **Requester**           | User department staff | Search the catalogue, raise and withdraw requests, read records covered by a live grant                                                                                                | Open anything without a grant; see who else requested a record                                       |
 | **Approver**            | Accounts              | Read any record, and revoke a grant. Decide requests item by item, shorten a requested period, issue an emergency grant — those three **only while holding a live approval authority** | Release anything once that authority lapses or is withdrawn; decide a request they raised themselves |
-| **Controlling officer** | Senior Accounts       | Everything an approver can, plus issue, suspend, resume and withdraw approval authorities                                                                                              | Issue an authority to themselves — that needs a second controlling officer                           |
-| **Custodian**           | Accounts              | Read any record. Run ingestion, resolve quarantine, correct metadata, verify integrity, issue an emergency grant (with a live authority)                                               | Edit or delete an audit event; write to the source folder                                            |
+| **Controlling officer** | Senior Accounts       | Everything an approver can, plus issue, suspend, resume and withdraw approval authorities, and approve or reject PPO corrections                                                                                              | Issue an authority to themselves, or decide a PPO correction they proposed — both need a second controlling officer                           |
+| **Custodian**           | Accounts              | Read any record. Run ingestion, resolve quarantine, correct an employee name, propose a PPO correction, verify integrity, issue an emergency grant (with a live authority)                                               | Edit or delete an audit event; write to the source folder                                            |
 | **Auditor**             | Anywhere              | Read the full audit log, every denial, every reading session; export CSV; view the live access register and the authority register                                                     | **Open any record** — an auditor sees who looked, never what they looked at                          |
 | **Administrator**       | IT                    | Create, rename, deactivate and delete departments; create users, assign roles, issue password-reset codes, enable 2FA, suspend accounts, change policy settings                        | **Open any record** by virtue of being an administrator                                              |
 
@@ -351,6 +353,28 @@ offered when creating a user or scoping an authority. Every operation writes an
 audit event (`DEPARTMENT_CREATED`, `_UPDATED`, `_DEACTIVATED`, `_ACTIVATED`,
 `_DELETED`).
 
+## Adding pages to a service record
+
+New papers for an employee — an increment order, a transfer order — are added
+by a **custodian** from the record's page, under **Add pages**. PDF, JPG or PNG,
+up to 25 MB (`SR_ADDITION_MAX_MB`); an image becomes a one-page PDF.
+
+1. **Upload.** The file is checked (type judged from its bytes, not its name;
+   encrypted, empty or duplicate files refused) and held as a staged upload.
+2. **Check.** The custodian pages through it, watermarked, next to the
+   employee's name and PPO number. Attaching papers to the wrong employee is
+   the mistake this step exists to catch.
+3. **Describe and add.** A description is required; the date on the document
+   is optional. The pages go after the last page of the record.
+
+The original PDF is never changed. Each addition is its own file in
+`SR_ADDITIONS_ROOT` (`./sr-additions` in compose), and the viewer shows the
+record as one run of pages, labelling which ones were added, when, and as what.
+Anyone with access to the record sees added pages, including grants issued
+before the pages were added. A mistaken addition is **withdrawn** with a
+reason, never deleted; later pages move up. When a new scan supersedes the
+record, the custodian chooses whether the additions carry over.
+
 ## Accounts, two-factor and password resets
 
 ### Two-factor authentication
@@ -486,6 +510,10 @@ parser suite.
 - **Back up the PDF folder yourself.** The app verifies a rotating slice by
   checksum nightly and alerts on drift or disappearance (§8.2); it does not
   replace a backup regime.
+- **Back up `./sr-additions` with the database.** It is the only writable
+  folder and holds the only copy of every page added after indexing. The two
+  must be restored together: a row without its file, or a file without its
+  row, is an integrity alert.
 
 ## Not built
 

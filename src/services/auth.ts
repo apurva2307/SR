@@ -4,6 +4,7 @@ import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
 import type { Queryable, Uuid } from '../domain/types.ts';
 import { config } from '../config.ts';
 import { appendEvent } from '../audit/events.ts';
+import { idleMinutes } from './settings.ts';
 
 const LOCKOUT_THRESHOLD = 5;
 const LOCKOUT_MINUTES = 15;
@@ -180,7 +181,7 @@ export async function resolveSession(db: Queryable, token: string): Promise<Reso
        AND expires_at > now()
        AND last_seen_at > now() - ($2 || ' minutes')::interval
      RETURNING id, user_id, family_id`,
-    [sha256(token), String(config.session.idleMinutes)],
+    [sha256(token), String(await idleMinutes(db, config.session.idleMinutes))],
   );
   const r = rows[0];
   return r ? { sessionId: r.id, userId: r.user_id, familyId: r.family_id } : null;

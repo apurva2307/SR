@@ -1,11 +1,16 @@
+import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import type { PageLayout } from '../api';
+import { useAuth } from '../auth';
 import { useLoad, fmtDateTime, fmtDate } from '../hooks';
 import { Banner, ItemPill, Spinner } from '../components/bits';
+import { AddPages, AdditionsHistory } from '../components/Additions';
+import { RecordCorrections } from '../components/Corrections';
 
 interface Detail {
   record: {
     id: string; ppo_number: string; employee_name: string; page_count: number | null;
-    byte_size: string; indexed_at: string; last_verified_at: string | null;
+    added_page_count: number; byte_size: string; indexed_at: string; last_verified_at: string | null;
     status: string; version_no: number; metadata: Record<string, unknown>;
   };
   access: { allowed: boolean; via?: string; validUntil?: string; reason?: string };
@@ -13,17 +18,29 @@ interface Detail {
     request_no: string; request_status: string; purpose: string; submitted_at: string;
     item_status: string; decided_at: string | null; decision_remarks: string | null;
   }[];
+  /** Only present when the reader may open the record. */
+  pages: PageLayout | null;
 }
 
 export function RecordPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { data, error, loading } = useLoad<Detail>(`/records/${id}`);
+  const { can } = useAuth();
+  const { data, error, loading, reload } = useLoad<Detail>(`/records/${id}`);
+  const [note, setNote] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  if (loading) return <Spinner />;
+  if (loading && !data) return <Spinner />;
   if (error || !data) return <Banner>{error ?? 'Not found.'}</Banner>;
 
-  const { record, access, myRequests } = data;
+  const { record, access, myRequests, pages } = data;
+  const isCustodian = can('CUSTODIAN');
+  const added = (pages?.segments ?? []).filter((s) => s.kind === 'ADDITION');
+  const changed = (msg?: string) => {
+    setNote(msg ?? null);
+    setRefreshKey((k) => k + 1);
+    void reload();
+  };
 
   return (
     <>
@@ -43,7 +60,15 @@ export function RecordPage() {
         <div className="card">
           <h3 style={{ marginBottom: 12 }}>Record</h3>
           <dl className="detail-list">
-            <dt>Pages</dt><dd className="mono">{record.page_count ?? '—'}</dd>
+            <dt>Pages</dt>
+            <dd className="mono">
+              {record.page_count == null ? '—' : record.page_count + record.added_page_count}
+              {record.added_page_count > 0 && (
+                <span style={{ color: 'var(--muted)' }}>
+                  {' '}({record.page_count} original + {record.added_page_count} added)
+                </span>
+              )}
+            </dd>
             <dt>Size</dt><dd className="mono">{(Number(record.byte_size) / 1024).toFixed(0)} KB</dd>
             <dt>Version</dt><dd className="mono">{record.version_no}</dd>
             <dt>Status</dt><dd>{record.status}</dd>
@@ -73,6 +98,49 @@ export function RecordPage() {
           )}
         </div>
       </div>
+
+      {note && <div style={{ marginTop: 14 }}><Banner kind="ok">{note}</Banner></div>}
+
+      {added.length > 0 && !isCustodian && (
+        <div className="card" style={{ marginTop: 14 }}>
+          <h3 style={{ marginBottom: 12 }}>Pages added after the original</h3>
+          <div className="tw">
+            <table>
+              <thead><tr><th>Pages</th><th>Description</th><th>Document date</th><th>Added</th></tr></thead>
+              <tbody>
+                {added.map((s) => (
+                  <tr key={s.additionId}>
+                    <td className="mono nowrap">{s.firstPage === s.lastPage ? s.firstPage : `${s.firstPage}–${s.lastPage}`}</td>
+                    <td>{s.description}</td>
+                    <td className="nowrap">{fmtDate(s.documentDate)}</td>
+                    <td className="nowrap">{fmtDate(s.uploadedAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {isCustodian && (
+        <>
+          <AdditionsHistory recordId={record.id} layout={pages} refreshKey={refreshKey}
+            onChanged={() => changed('Those pages were withdrawn. Later pages have moved up.')} />
+          {record.status === 'ACTIVE' ? (
+            <AddPages recordId={record.id} employeeName={record.employee_name}
+              ppo={record.ppo_number} onAdded={(msg) => changed(msg)} />
+          ) : (
+            <div style={{ marginTop: 14 }}>
+              <Banner kind="warn">This version has been superseded. Add pages to the current version.</Banner>
+            </div>
+          )}
+        </>
+      )}
+
+      {can('CUSTODIAN', 'CONTROLLING_OFFICER', 'AUDITOR') && (
+        <RecordCorrections key={refreshKey} recordId={record.id} employeeName={record.employee_name}
+          ppo={record.ppo_number} active={record.status === 'ACTIVE'} onChanged={(msg) => changed(msg)} />
+      )}
 
       <div className="card" style={{ marginTop: 14 }}>
         <h3 style={{ marginBottom: 12 }}>Your requests for this record</h3>

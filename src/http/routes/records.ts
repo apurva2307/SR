@@ -8,7 +8,7 @@ import { checkGrant, consumeView } from '../../authz/grantCheck.ts';
 import { appendEvent } from '../../audit/events.ts';
 import { renderPage, PageOutOfRangeError } from '../../services/render/pageRenderer.ts';
 import * as cache from '../../services/render/cache.ts';
-import { resolveInsideRoots } from '../../services/ingest/paths.ts';
+import { layout, locatePage } from '../../services/additions.ts';
 import { isCustodial, requireAuth } from '../middleware/auth.ts';
 import { rateLimit } from '../middleware/rateLimit.ts';
 import { audit, param, uuidParam } from '../middleware/context.ts';
@@ -49,7 +49,7 @@ recordRoutes.get('/',
 recordRoutes.get('/:id', wrap(async (req, res) => {
   const id = param(req, 'id');
   const { rows } = await getPool().query(
-    `SELECT r.id, r.ppo_number, r.employee_name, r.page_count, r.byte_size,
+    `SELECT r.id, r.ppo_number, r.employee_name, r.page_count, r.added_page_count, r.byte_size,
             r.indexed_at, r.last_verified_at, r.status, r.version_no, r.metadata
      FROM service_records r WHERE r.id = $1`, [id],
   );
@@ -67,11 +67,16 @@ recordRoutes.get('/:id', wrap(async (req, res) => {
     [id, req.principal!.id],
   );
 
+  // Which pages are the original and which were added, with each addition's
+  // description. Only for someone who may read the record: a description
+  // ("disciplinary order, 2026") is itself part of its contents.
+  const pages = decision.allowed ? await layout(getPool(), id) : null;
+
   await appendEvent(getPool(), {
     eventType: 'RECORD_METADATA_VIEWED', actorId: req.principal!.id,
     serviceRecordId: id, actorIp: req.clientIp,
   });
-  res.json({ record, access: decision, myRequests: history });
+  res.json({ record, access: decision, myRequests: history, pages });
 }));
 
 /**
@@ -109,10 +114,17 @@ recordRoutes.get('/:id/page/:n',
       return;
     }
 
-    const { rows } = await getPool().query<{ file_path: string; ppo_number: string }>(
-      `SELECT file_path, ppo_number FROM service_records WHERE id = $1`, [recordId],
+    const { rows } = await getPool().query<{ ppo_number: string }>(
+      `SELECT ppo_number FROM service_records WHERE id = $1`, [recordId],
     );
     if (!rows[0]) { res.status(404).json({ error: 'NOT_FOUND', message: 'No such record.' }); return; }
+
+    // The original's pages first, then each live addition in order (§5.2).
+    const located = await locatePage(getPool(), recordId, pageNo);
+    if (located === 'OUT_OF_RANGE' || located === null) {
+      res.status(404).json({ error: 'NO_SUCH_PAGE', message: 'That page does not exist.' });
+      return;
+    }
 
     const grantKey = decision.via === 'GRANT' ? decision.grantId : `custodial:${req.principal!.id}`;
 
@@ -159,11 +171,10 @@ recordRoutes.get('/:id/page/:n',
 
     let rendered = cache.get(recordId, pageNo, grantKey, config.render.dpi);
     if (!rendered) {
-      const safePath = await resolveInsideRoots(rows[0].file_path);
       try {
         rendered = await renderPage({
-          filePath: safePath,
-          page: pageNo,
+          filePath: located.filePath,
+          page: located.localPage,
           watermark: {
             readerName: req.principal!.fullName,
             staffCode: req.principal!.staffCode,
@@ -202,7 +213,7 @@ recordRoutes.get('/:id/page/:n',
         // No caching, no range requests, no Content-Disposition: there is
         // nothing here to save and nothing to resume.
         'Cache-Control': 'no-store, private',
-        'X-Page-Count': String(rendered.pageCount),
+        'X-Page-Count': String(located.total),
         'X-Page-Width': String(rendered.width),
         'X-Page-Height': String(rendered.height),
       })
@@ -225,3 +236,27 @@ recordRoutes.post('/:id/close-view', wrap(async (req, res) => {
   }
   res.json({ ok: true, closed: rows.length });
 }));
+
+/**
+ * The viewer reports the things a browser can see someone doing to capture a
+ * page — the Print Screen key, a print or save shortcut, opening developer
+ * tools. None of these can be reliably stopped from a web page; they are
+ * recorded so the audit log shows who tried, on which record and page.
+ */
+const captureBody = z.object({
+  kind: z.enum(['PRINT_SCREEN', 'PRINT', 'SAVE', 'COPY', 'DEVTOOLS']),
+  page: z.number().int().min(1).max(5000).optional(),
+});
+
+recordRoutes.post('/:id/capture-attempt',
+  rateLimit('capture', 30, 60_000),
+  wrap(async (req, res) => {
+    const body = captureBody.safeParse(req.body);
+    if (!body.success) { res.status(400).json({ error: 'BAD_REQUEST', message: 'Unknown capture kind.' }); return; }
+    await appendEvent(getPool(), {
+      eventType: 'SCREEN_CAPTURE_ATTEMPT', actorId: req.principal!.id,
+      serviceRecordId: param(req, 'id'), actorIp: req.clientIp,
+      detail: { kind: body.data.kind, page: body.data.page ?? null },
+    });
+    res.json({ ok: true });
+  }));

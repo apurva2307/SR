@@ -7,6 +7,8 @@ interface User {
   id: string; staff_code: string; full_name: string; email: string | null;
   designation: string | null; status: string; roles: string[]; department_name: string; kind: string;
   last_login_at: string | null; must_change_password: boolean;
+  /** Latest use of any live session, and whether that is within the inactivity limit. */
+  last_seen_at: string | null; online: boolean;
   totp_enabled: boolean; totp_required: boolean;
 }
 interface Dept {
@@ -83,7 +85,7 @@ export function AdminPage() {
       <div className="tw">
         <table>
           <thead>
-            <tr><th>Staff</th><th>Department</th><th>Roles</th><th>Last seen</th><th>State</th><th></th></tr>
+            <tr><th>Staff</th><th>Department</th><th>Roles</th><th>Last login</th><th>Activity</th><th>State</th><th></th></tr>
           </thead>
           <tbody>
             {(users.data?.users ?? []).map((u) => (
@@ -112,6 +114,16 @@ export function AdminPage() {
                   </div>
                 </td>
                 <td className="nowrap">{fmtDateTime(u.last_login_at)}</td>
+                <td className="nowrap">
+                  {u.online
+                    ? <span className="pill ok">● ONLINE</span>
+                    : <span className="pill neutral">OFFLINE</span>}
+                  {u.last_seen_at && (
+                    <div style={{ color: 'var(--muted)', fontSize: '0.75rem', marginTop: 4 }}>
+                      Last active {fmtDateTime(u.last_seen_at)}
+                    </div>
+                  )}
+                </td>
                 <td>
                   <span className={`pill ${u.status === 'ACTIVE' ? 'ok' : 'stop'}`}>{u.status}</span>
                   <div style={{ marginTop: 4 }}>

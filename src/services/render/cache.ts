@@ -39,5 +39,10 @@ export function dropGrant(grantKey: string): void {
   for (const k of store.keys()) if (k.includes(`:${grantKey}:`)) store.delete(k);
 }
 
+/** Called when a record's pages are added or withdrawn: page numbers moved. */
+export function dropRecord(recordId: string): void {
+  for (const k of store.keys()) if (k.startsWith(`${recordId}:`)) store.delete(k);
+}
+
 export function clear(): void { store.clear(); }
 export const size = (): number => store.size;

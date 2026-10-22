@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 
 export type ThemeChoice = 'system' | 'light' | 'dark';
 
-const KEY = 'sr.theme';
+const KEY = 'sevalekh.theme';
 const CHOICES: ThemeChoice[] = ['system', 'light', 'dark'];
 
 function read(): ThemeChoice {

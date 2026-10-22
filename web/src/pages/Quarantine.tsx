@@ -7,6 +7,8 @@ interface Item {
   id: string; raw_path: string; raw_filename: string; reason: string;
   detail: Record<string, unknown>; suggested_ppo: string | null;
   suggested_name: string | null; created_at: string;
+  /** Live pages added to the record this file would supersede. */
+  prior_additions: number;
 }
 
 interface Run {
@@ -102,10 +104,11 @@ function ResolveCard({ item, onDone }: { item: Item; onDone: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  async function resolve(resolution: string) {
+  async function resolve(resolution: string, carryAdditions?: boolean) {
     setBusy(true); setError(null);
     try {
-      await api.post(`/custody/quarantine/${item.id}/resolve`, { resolution, ppo, name });
+      await api.post(`/custody/quarantine/${item.id}/resolve`,
+        { resolution, ppo, name, ...(carryAdditions === undefined ? {} : { carryAdditions }) });
       onDone();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Could not resolve this item.');
@@ -137,6 +140,14 @@ function ResolveCard({ item, onDone }: { item: Item; onDone: () => void }) {
         </Banner>
       )}
 
+      {item.reason === 'NEW_VERSION' && item.prior_additions > 0 && (
+        <Banner kind="warn">
+          The earlier version has <strong>{item.prior_additions} addition{item.prior_additions === 1 ? '' : 's'}</strong>{' '}
+          of pages uploaded since it was indexed. If this new scan already includes those papers, leave them
+          with the old version; if not, carry them over so they follow the new scan.
+        </Banner>
+      )}
+
       <div className="row">
         <div className="field">
           <label htmlFor={`ppo-${item.id}`}>PPO number</label>
@@ -151,9 +162,17 @@ function ResolveCard({ item, onDone }: { item: Item; onDone: () => void }) {
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <button className="primary" disabled={busy || !ppo.trim() || !name.trim()}
           onClick={() => void resolve('INDEXED')}>Index as a new record</button>
-        {item.reason === 'NEW_VERSION' && (
+        {item.reason === 'NEW_VERSION' && item.prior_additions === 0 && (
           <button disabled={busy || !ppo.trim() || !name.trim()}
             onClick={() => void resolve('SUPERSEDED')}>Supersede the earlier version</button>
+        )}
+        {item.reason === 'NEW_VERSION' && item.prior_additions > 0 && (
+          <>
+            <button disabled={busy || !ppo.trim() || !name.trim()}
+              onClick={() => void resolve('SUPERSEDED', true)}>Supersede, and keep the added pages</button>
+            <button disabled={busy || !ppo.trim() || !name.trim()}
+              onClick={() => void resolve('SUPERSEDED', false)}>Supersede — the new scan already has them</button>
+          </>
         )}
         <button disabled={busy} onClick={() => void resolve('IGNORED')}>Leave out of the catalogue</button>
       </div>

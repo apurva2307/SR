@@ -21,9 +21,19 @@ export const config = {
     .map((r) => resolve(r.trim()))
     .filter(Boolean),
 
+  /**
+   * Where pages added after indexing are kept — the one folder the application
+   * writes to. It holds the only copy of each upload, so it belongs in the
+   * backup regime from day one. Never one of the source roots: ingestion must
+   * not scan what the application itself wrote.
+   */
+  additionsRoot: resolve(process.env['SR_ADDITIONS_ROOT'] ?? '/srv/sr-additions'),
+  additionMaxBytes: num('SR_ADDITION_MAX_MB', 25) * 1024 * 1024,
+
   session: {
     accessMinutes: num('SESSION_ACCESS_MINUTES', 15),
-    idleMinutes: num('SESSION_IDLE_MINUTES', 20),
+    // Fallback only: Administration's 'session.idle_minutes' setting wins.
+    idleMinutes: num('SESSION_IDLE_MINUTES', 15),
     absoluteHours: num('SESSION_ABSOLUTE_HOURS', 8),
     cookieSecure: process.env['COOKIE_SECURE'] !== 'false',
   },
