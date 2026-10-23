@@ -9,3 +9,5 @@ pgdata/
 pgdata18/
 sr-additions/
 service-records/
+backups/
+restore/

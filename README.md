@@ -513,7 +513,158 @@ parser suite.
 - **Back up `./sr-additions` with the database.** It is the only writable
   folder and holds the only copy of every page added after indexing. The two
   must be restored together: a row without its file, or a file without its
-  row, is an integrity alert.
+  row, is an integrity alert. The `backup` service does both in one file; see
+  [Backups](#backups).
+
+## Backups
+
+The `backup` service starts with `docker compose up`. Once a day at 02:00 IST it
+writes one encrypted file that contains the database and `./sr-additions`
+together. If the machine was off at 02:00, the backup runs as soon as it is back
+on. Files go to `./backups`:
+
+```
+backups/daily/sr-2026-10-23.tar.age     newest 14 days
+backups/weekly/sr-2026-W43.tar.age      one per week, newest 8
+backups/monthly/sr-2026-10.tar.age      one per month, newest 12
+backups/last-success                    when and what, after each good run
+backups/last-failure                    present only while backups are failing
+```
+
+Each file is a pg_dump plus a tar of `sr-additions`, with checksums. It is
+encrypted with [age](https://age-encryption.org) to the public key in
+`BACKUP_AGE_RECIPIENT` (`.env`). **The server holds only the public key, so it
+cannot read its own backups.** The private key is kept offline: a password
+manager, plus a printed copy in the department safe. **If that key is lost, every
+backup is unreadable.**
+
+**`./backups` on the same disk as `./pgdata18` is not yet a backup.** Point the
+mount at another drive in `docker-compose.yml`, for example
+`- E:/sevalekh-backups:/backups` on the `backup` and `restore` services.
+
+Every command below is run from the project folder (the one holding
+`docker-compose.yml`). They work unchanged in PowerShell on Windows and in a
+Linux shell.
+
+### Setting up backups on a server
+
+Do this once per server. Every server gets its own key pair.
+
+**1. Make the key pair.**
+
+```bash
+docker compose run --rm keygen
+```
+
+This prints a line like the following. The `age1…` part is the **public key**:
+
+```
+Public key: age1ehryetjwnzke4drqldvz7ze3fqftdzd93hffu0hdzq4lfhvhfp4qya972w
+```
+
+It also writes the **private key** to `./restore/age-key.txt`. That file has
+three lines, and the last one starts with `AGE-SECRET-KEY-1…`. If the file
+already exists, the command refuses to run rather than overwrite a key that may
+be the only way into existing backups.
+
+**2. Put the public key in `.env`.**
+
+```
+BACKUP_AGE_RECIPIENT=age1ehryetjwnzke4drqldvz7ze3fqftdzd93hffu0hdzq4lfhvhfp4qya972w
+```
+
+**3. Move the private key off the server.** Copy all three lines of
+`./restore/age-key.txt` into a password manager, and keep a printed copy in the
+department safe. Label it with the server name and the date, then delete the
+file from the server:
+
+```bash
+# Linux
+rm restore/age-key.txt
+# Windows PowerShell
+Remove-Item restore\age-key.txt
+```
+
+**4. Start the backup service**, then take a first backup and check that it
+worked:
+
+```bash
+docker compose up -d --build backup
+docker compose exec backup backup.sh now
+docker compose logs backup
+cat backups/last-success
+```
+
+**5. Prove you can restore it.** Follow the test restore below, using the key from
+the password manager. Until you have done this, you do not know that you hold
+the right key.
+
+On Windows, also turn on *Start Docker Desktop when you sign in* in Docker
+Desktop settings. Backups run only while Docker is running.
+
+### Checking on backups
+
+```bash
+docker compose logs backup                     # what it did, and when
+cat backups/last-success                       # time and file of the last good backup
+ls backups/daily                               # Windows: dir backups\daily
+docker compose exec backup backup.sh now       # one backup, right now
+```
+
+If `backups/last-failure` exists, the last attempt failed. The service retries
+every hour, and `docker compose logs backup` shows why it failed.
+
+### Restoring
+
+Every restore needs the private key. Save the three lines from the password
+manager as `./restore/age-key.txt`. Create the `restore` folder if it does not
+exist. Notepad is fine for this. **Delete the file once the restore is done.**
+
+The backup file is named by its path under `./backups`, for example
+`daily/sr-2026-10-23.tar.age`. Run `ls backups/daily` to see the dates you have.
+
+**Test restore.** This touches nothing live. It restores into a separate
+database, `service_records_restore`, unpacks the pages to
+`./restore/sr-2026-10-23/sr-additions`, checks the checksums and prints row
+counts to compare with the live system. Do this every month or so: a backup that
+has never been restored is unproven.
+
+```bash
+docker compose run --rm restore daily/sr-2026-10-23.tar.age
+```
+
+Clean up afterwards:
+
+```bash
+docker compose exec db psql -U srdfm -d postgres -c "drop database service_records_restore"
+```
+
+**Real restore.** This replaces the live database **and** `./sr-additions` with
+the backup's contents. Everything recorded after that backup was taken is lost.
+
+```bash
+docker compose stop app
+docker compose run --rm restore daily/sr-2026-10-23.tar.age --live
+docker compose start app
+```
+
+**Restoring onto a new server** (the old one is gone):
+
+1. Set up the app on the new server as in [Running it](#running-it), up to and
+   including `docker compose up --build -d`. Do not run `bootstrap`, because the
+   restore brings the users back.
+2. Copy the backup file into the new server's `./backups/daily/`.
+3. Put the old server's private key at `./restore/age-key.txt`.
+4. Run the real restore above, then delete the key file.
+5. Set up backups on the new server with its own key pair, as described above.
+
+### Replacing the key
+
+To change the key, for example because the private key may have been exposed:
+remove or rename the old `./restore/age-key.txt` if it is present, then repeat
+steps 1–4 of setting up. New backups use the new key. **Keep the old private key
+until the last backup made with it has been pruned (12 months),** because those
+backups can only be opened with it.
 
 ## Not built
 

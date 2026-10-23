@@ -61,6 +61,64 @@ services:
       # Back this folder up with the database.
       - ./sr-additions:/srv/sr-additions
 
+  # Daily encrypted backup of the database and ./sr-additions, at BACKUP_HOUR
+  # local time (or as soon as the host is back, if it was off then). Retention
+  # 14 daily / 8 weekly / 12 monthly. See README, Backups.
+  #   docker compose logs backup          what it did
+  #   docker compose exec backup backup.sh now    one backup, right now
+  # ./backups on the same disk as ./pgdata18 is not yet a backup: point the
+  # mount at another drive.
+  backup:
+    build: ./scripts/backup
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      PGHOST: db
+      PGUSER: srdfm
+      PGPASSWORD: ${PG_PASSWORD}
+      PGDATABASE: service_records
+      AGE_RECIPIENT: ${BACKUP_AGE_RECIPIENT}
+      TZ: ${BACKUP_TZ:-Asia/Kolkata}
+      BACKUP_HOUR: ${BACKUP_HOUR:-2}
+    volumes:
+      - ./backups:/backups
+      - ./sr-additions:/srv/sr-additions:ro
+    restart: "unless-stopped"
+
+  # Makes the backup key pair: writes the private key to ./restore/age-key.txt
+  # and prints the public key for BACKUP_AGE_RECIPIENT. Written to a mounted
+  # file rather than redirected from stdout because Windows PowerShell's `>`
+  # writes UTF-16, which age cannot read.
+  #   docker compose run --rm keygen
+  keygen:
+    build: ./scripts/backup
+    profiles: ["tools"]
+    volumes:
+      - ./restore:/restore
+    entrypoint: ["age-keygen", "-o", "/restore/age-key.txt"]
+
+  # Restores a backup. Needs the private key at ./restore/age-key.txt.
+  #   docker compose run --rm restore daily/sr-2026-10-23.tar.age
+  #       test restore into a scratch database; touches nothing live
+  #   docker compose stop app && \
+  #   docker compose run --rm restore daily/sr-2026-10-23.tar.age --live
+  #       replaces the live database and ./sr-additions
+  restore:
+    build: ./scripts/backup
+    profiles: ["tools"]
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      PGHOST: db
+      PGUSER: srdfm
+      PGPASSWORD: ${PG_PASSWORD}
+      PGDATABASE: service_records
+    volumes:
+      - ./backups:/backups:ro
+      - ./restore:/restore
+      - ./sr-additions:/srv/sr-additions
+    entrypoint: ["restore.sh"]
+
   # The first real account, and later ones if you prefer the shell to the admin
   # console. Not part of `up`; run it explicitly and pass what it needs:
   #   docker compose run --rm \
