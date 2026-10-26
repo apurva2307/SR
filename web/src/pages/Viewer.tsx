@@ -171,6 +171,28 @@ export function ViewerPage() {
   }, [pageCount, goTo]);
 
   useCaptureDeterrents(id, currentRef, setShielded);
+  const [full, toggleFull] = useFullScreen();
+
+  // The scroller changes height on the way in and out; keep the reader on
+  // the page they were reading rather than wherever the offset now lands.
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => goTo(currentRef.current, false));
+    return () => window.cancelAnimationFrame(frame);
+  }, [full, goTo]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key === 'f' || e.key === 'F') { e.preventDefault(); toggleFull(); }
+      // Only reaches us in the fallback mode: in real full screen the browser
+      // takes Escape itself and fullscreenchange brings us back.
+      if (e.key === 'Escape' && full) { e.preventDefault(); toggleFull(false); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [full, toggleFull]);
 
   const left = daysLeft(detail?.access.validUntil);
   // Which part of the record this page belongs to: the original file, or a
@@ -180,7 +202,7 @@ export function ViewerPage() {
   const pageNumbers = pageCount ? Array.from({ length: pageCount }, (_, i) => i + 1) : [];
 
   return (
-    <div className="viewer">
+    <div className={`viewer${full ? ' full' : ''}`}>
       <div className="page-head">
         <div>
           <h1>{detail?.record.employee_name ?? 'Service record'}</h1>
@@ -195,6 +217,12 @@ export function ViewerPage() {
       {error && <Banner>{error}</Banner>}
 
       <div className="viewer-bar">
+        {full && detail && (
+          <span className="viewer-title">
+            <strong>{detail.record.employee_name}</strong>{' '}
+            <span className="mono">{detail.record.ppo_number}</span>
+          </span>
+        )}
         <button className="small" disabled={current <= 1} onClick={() => goTo(current - 1)}>← Previous</button>
         <JumpToPage page={current} pageCount={pageCount} onJump={(n) => goTo(n, false)} />
         <button className="small" disabled={!!pageCount && current >= pageCount}
@@ -220,6 +248,10 @@ export function ViewerPage() {
           </span>
         )}
         <span className="pill neutral">SCREEN ONLY</span>
+        <button className="small" onClick={() => toggleFull()} aria-pressed={full}
+          title={full ? 'Exit full screen (Esc)' : 'Full screen (F)'}>
+          {full ? '✕ Exit full screen' : '⛶ Full screen'}
+        </button>
       </div>
 
       <div className="page-stage">
@@ -258,6 +290,7 @@ export function ViewerPage() {
         itself never leaves the server, every page you open is recorded, and attempts to capture
         the screen are logged.
         {pageCount && pageCount > 1 ? ' Scroll to read on, type a page number above, or use ← and → to move a page at a time.' : ''}
+        {' '}Press F to read full screen.
       </p>
     </div>
   );
@@ -340,6 +373,52 @@ function useCaptureDeterrents(
       document.body.classList.remove('no-select');
     };
   }, [id, currentRef, setShielded]);
+}
+
+/**
+ * Reading full screen. The whole document goes full screen, not the viewer
+ * element, so the idle-timeout warning in the shell still shows over the
+ * record; the `.full` class then lays the viewer over everything else.
+ * Where the Fullscreen API is missing (iPhone Safari) or refused, the class
+ * alone still gives the reader the whole window.
+ */
+function useFullScreen(): [boolean, (on?: boolean) => void] {
+  const [full, setFull] = useState(false);
+  const native = useRef(false);
+
+  useEffect(() => {
+    const onChange = () => {
+      // Left with Escape or the browser's own control.
+      if (native.current && !document.fullscreenElement) { native.current = false; setFull(false); }
+    };
+    document.addEventListener('fullscreenchange', onChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', onChange);
+      // Leaving the record (or being signed out) must not leave the app stuck full screen.
+      if (native.current && document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+    };
+  }, []);
+
+  const fullRef = useRef(false);
+  fullRef.current = full;
+
+  const toggle = useCallback((on?: boolean) => {
+    const next = on ?? !fullRef.current;
+    if (next === fullRef.current) return;
+    fullRef.current = next;
+    setFull(next);
+    if (next) {
+      const root = document.documentElement;
+      if (root.requestFullscreen && !document.fullscreenElement) {
+        root.requestFullscreen().then(() => { native.current = true; }).catch(() => {});
+      }
+    } else if (native.current && document.fullscreenElement) {
+      native.current = false;
+      void document.exitFullscreen().catch(() => {});
+    }
+  }, []);
+
+  return [full, toggle];
 }
 
 /**

@@ -246,6 +246,19 @@ tbody tr.selectable:hover { background: var(--surface-2); }
   padding: 24px; text-align: center; background: color-mix(in srgb, var(--sunk) 85%, transparent);
 }
 .capture-shield strong { font-size: 1.1rem; }
+/* Full screen: the viewer laid over the whole window, pages given all the height. */
+.viewer.full {
+  position: fixed; inset: 0; z-index: 50; gap: 0;
+  background: var(--sunk); padding: 0;
+}
+.viewer.full .page-head, .viewer.full > .hint { display: none; }
+.viewer.full .viewer-bar { border-radius: 0; border-width: 0 0 1px; }
+.viewer.full .page-stage { flex: 1; min-height: 0; }
+.viewer.full .page-scroll { height: 100%; min-height: 0; border: none; border-radius: 0; }
+.viewer.full .page-slot { max-width: 1200px; }
+.viewer.full .capture-shield { border-radius: 0; }
+.viewer-title { display: inline-flex; align-items: baseline; gap: 8px; margin-right: 6px; }
+.viewer-title .mono { font-size: 0.8rem; color: var(--muted); }
 body.no-select { user-select: none; -webkit-user-select: none; }
 body.no-select input, body.no-select textarea { user-select: text; -webkit-user-select: text; }
 
