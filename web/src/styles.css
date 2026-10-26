@@ -153,6 +153,18 @@ label { display: block; font-size: 0.78rem; font-weight: 500; color: var(--ink-2
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 18px 20px; }
 .card + .card { margin-top: 14px; }
 .card-head { display: flex; justify-content: space-between; align-items: center; gap: 14px; margin-bottom: 12px; }
+.stats {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px;
+  margin-bottom: 18px;
+}
+.stat {
+  display: flex; flex-direction: column; gap: 2px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px;
+}
+.stat-label { font-size: 0.74rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.stat-value { font-family: var(--mono); font-size: 1.6rem; font-variant-numeric: tabular-nums; line-height: 1.2; }
+.stat-value.warn { color: var(--warn); }
+.stat-note { font-size: 0.76rem; color: var(--muted); }
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
 
 .tw { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }

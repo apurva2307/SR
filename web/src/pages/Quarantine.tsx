@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { api, ApiError } from '../api';
 import { useLoad, fmtDateTime } from '../hooks';
 import { Banner, Empty, Spinner } from '../components/bits';
+import { RecordStats } from '../components/RecordStats';
 
 interface Item {
   id: string; raw_path: string; raw_filename: string; reason: string;
@@ -31,6 +32,7 @@ export function QuarantinePage() {
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
+  const [scans, setScans] = useState(0);
 
   async function scan() {
     setBusy(true); setProblem(null); setNote(null);
@@ -39,6 +41,7 @@ export function QuarantinePage() {
         '/custody/ingestion/scan');
       setNote(`Scanned ${s.filesSeen} file(s): ${s.added} indexed, ${s.quarantined} quarantined.`);
       await Promise.all([items.reload(), runs.reload()]);
+      setScans((v) => v + 1);
     } catch (e) {
       setProblem(e instanceof ApiError ? e.message : 'The scan failed.');
     } finally { setBusy(false); }
@@ -67,6 +70,8 @@ export function QuarantinePage() {
 
       {note && <Banner kind="ok">{note}</Banner>}
       {problem && <Banner>{problem}</Banner>}
+
+      <RecordStats version={scans} />
 
       {open.length === 0
         ? <div className="tw"><Empty title="Nothing waiting">

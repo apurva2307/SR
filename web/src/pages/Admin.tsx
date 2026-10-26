@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, ApiError } from '../api';
 import { useLoad, fmtDateTime } from '../hooks';
 import { Banner, Empty, Spinner } from '../components/bits';
+import { RecordStats } from '../components/RecordStats';
 
 interface User {
   id: string; staff_code: string; full_name: string; email: string | null;
@@ -71,6 +72,8 @@ export function AdminPage() {
 
       {note && <Banner kind="ok">{note}</Banner>}
       {problem && <Banner>{problem}</Banner>}
+
+      <RecordStats />
 
       {creating && (
         <NewUser departments={depts.data?.departments ?? []}

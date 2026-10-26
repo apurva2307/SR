@@ -33,6 +33,23 @@ adminRoutes.get('/departments', wrap(async (_req, res) => {
   res.json({ departments: rows });
 }));
 
+// How much is on file. Counts only — no names, PPOs or paths — so it is fit
+// for the administrator, who otherwise sees no record data, as well as the
+// custodian who runs ingestion.
+adminRoutes.get('/record-stats', requireRole('ADMIN', 'CUSTODIAN'), wrap(async (_req, res) => {
+  const { rows: [stats] } = await getPool().query(
+    `SELECT
+       (SELECT count(*) FROM service_records WHERE status = 'ACTIVE')::int      AS active,
+       (SELECT count(*) FROM service_records WHERE status = 'SUPERSEDED')::int  AS superseded,
+       (SELECT count(*) FROM service_records WHERE status = 'ARCHIVED')::int    AS archived,
+       (SELECT coalesce(sum(coalesce(page_count, 0) + added_page_count), 0)
+          FROM service_records WHERE status = 'ACTIVE')::bigint                  AS pages,
+       (SELECT count(*) FROM quarantine_items WHERE resolved_at IS NULL)::int   AS quarantined,
+       (SELECT max(finished_at) FROM ingestion_runs)                             AS last_scan`,
+  );
+  res.json({ ...stats, pages: Number(stats.pages) });
+}));
+
 const departmentBody = z.object({
   code: z.string().trim().min(2, 'A code needs at least two characters.').max(12),
   name: z.string().trim().min(3, 'Give the department its full name.').max(120),
