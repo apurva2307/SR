@@ -196,3 +196,17 @@ test('site-specific patterns can be supplied without touching the built-ins', ()
   assert.equal(r.ok, true);
   assert.equal(r.ok === true && r.ppoNormalized, PPO);
 });
+
+test('@ works as a separator wherever _ does', () => {
+  for (const f of [
+    `${PPO}@RAM KUMAR SHARMA.pdf`,
+    `${PPO} @ Ram Kumar Sharma.pdf`,
+    `PPO@${PPO}@Ram Kumar Sharma.pdf`,
+    `RAM KUMAR SHARMA@${PPO}.pdf`,
+    `${PPO}@RAM KUMAR SHARMA@SR.pdf`,
+  ]) {
+    const r = ok(f);
+    assert.equal(r.ppoNormalized, PPO, f);
+    assert.equal(r.nameNormalized, 'RAM KUMAR SHARMA', f);
+  }
+});

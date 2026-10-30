@@ -53,20 +53,21 @@ export function toQuarantineReason(_failure: ParseFailure): 'UNPARSEABLE' {
 }
 
 // Filesystem and workflow debris. Trailing only, and only when a name survives.
-const COPY_ARTIFACT = /[\s._-]*(?:-\s*copy(?:\s*\(\d{1,3}\))?|\(\d{1,3}\))\s*$/iu;
+const COPY_ARTIFACT = /[\s._@-]*(?:-\s*copy(?:\s*\(\d{1,3}\))?|\(\d{1,3}\))\s*$/iu;
 // `compressed` earns its place: bulk PDF optimisers append it to every file
 // they touch, so a whole folder arrives with it and every employee name in the
 // catalogue ends up carrying it.
 const NOISE_SUFFIX =
-  /[\s._-]+(?:s\.?r\.?|service[\s._-]*record|copy|scan|final|new|old|compressed)\s*$/iu;
+  /[\s._@-]+(?:s\.?r\.?|service[\s._-]*record|copy|scan|final|new|old|compressed)\s*$/iu;
 
 const PPO_RUN = String.raw`\d[\d\s\-\/]*\d|\d`;
 // Older PPOs carry a short bank/office code between two digit groups:
 // "0383-PSB-2732". Letters are only allowed when digits follow them, so a
 // plain "0196030503 - NANHOO" never has its name swallowed into the PPO.
 const PPO_ALNUM_RUN = String.raw`\d+[\s\-\/]*\p{L}{2,4}[\s\-\/]*\d+`;
-const LABEL = String.raw`(?:ppo[\s._:-]*)?`;
-const SEP = String.raw`[\s._\-]+`;
+// `@` is a separator some offices use in place of `_`: "410221100347@RAM KUMAR SHARMA".
+const LABEL = String.raw`(?:ppo[\s._:@-]*)?`;
+const SEP = String.raw`[\s._@\-]+`;
 
 const PATTERNS: ReadonlyArray<{ name: PatternName; re: RegExp }> = [
   // 0383- PSB-2732 BHAGWAT PRASAD — tried first, or PPO_LEADING takes "0383"
@@ -75,7 +76,7 @@ const PATTERNS: ReadonlyArray<{ name: PatternName; re: RegExp }> = [
   // 410221100347_RAM KUMAR SHARMA   |   PPO 4102-2110-0347 - Ram Sharma
   { name: 'PPO_LEADING', re: new RegExp(String.raw`^${LABEL}(?<ppo>${PPO_RUN})${SEP}(?<name>.+)$`, 'iu') },
   // Ram Kumar Sharma (410221100347)   |   Ram Sharma [PPO 410221100347]
-  { name: 'PPO_BRACKETED', re: new RegExp(String.raw`^(?<name>.+?)[\s._-]*[\(\[]\s*${LABEL}(?<ppo>${PPO_RUN})\s*[\)\]]\s*$`, 'iu') },
+  { name: 'PPO_BRACKETED', re: new RegExp(String.raw`^(?<name>.+?)[\s._@-]*[\(\[]\s*${LABEL}(?<ppo>${PPO_RUN})\s*[\)\]]\s*$`, 'iu') },
   // SMT. SUNITA DEVI_410221100348
   { name: 'PPO_TRAILING', re: new RegExp(String.raw`^(?<name>.+?)${SEP}${LABEL}(?<ppo>${PPO_RUN})\s*$`, 'iu') },
 ];
